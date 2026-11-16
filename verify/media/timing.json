@@ -1,21 +1,35 @@
 {
-  "navPerf": 28.5,
-  "audioStartPerf": 1833,
+  "navPerf": 34.299999952316284,
+  "audioStartPerf": 1850.2999999523163,
   "events": [
     {
-      "t": 6352.5,
-      "dst": "Hallo, willkommen zur Besprechung.",
-      "lat": "ASR 515 ms · MT 309 ms · total 824 ms · round trip 829 ms"
+      "t": 6065.099999904633,
+      "dst": "",
+      "lat": ""
     },
     {
-      "t": 10977.5,
-      "dst": "Heute werden wir über die Quartalsergebnisse sprechen.",
-      "lat": "ASR 540 ms · MT 208 ms · total 748 ms · round trip 753 ms"
+      "t": 10751.200000047684,
+      "dst": "",
+      "lat": ""
     },
     {
-      "t": 15997.200000047684,
+      "t": 15755.200000047684,
+      "dst": "",
+      "lat": ""
+    }
+  ],
+  "captions": [
+    {
       "dst": "Unsere Umsätze stiegen in diesem Quartal um 12%.",
-      "lat": "ASR 533 ms · MT 237 ms · total 770 ms · round trip 773 ms"
+      "lat": "ASR 530 ms · MT 265 ms · total 795 ms · round trip 798 ms"
+    },
+    {
+      "dst": "Heute werden wir über die Quartalsergebnisse sprechen.",
+      "lat": "ASR 526 ms · MT 230 ms · total 756 ms · round trip 760 ms"
+    },
+    {
+      "dst": "Hallo, willkommen zur Besprechung.",
+      "lat": "ASR 540 ms · MT 259 ms · total 799 ms · round trip 803 ms"
     }
   ]
 }

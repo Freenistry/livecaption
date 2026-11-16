@@ -107,6 +107,42 @@ async function mt(src) {
   return (j.choices?.[0]?.message?.content || '').trim();
 }
 
+// Same request, but streams token deltas as they are generated.
+// No pacing is applied: what the caller sees is what the model actually emitted, when it emitted it.
+async function mtStream(src, onDelta) {
+  const r = await fetch(`${MT_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      messages: [{ role: 'user', content: `Translate the following text into ${TARGET}. Output only the translation, no explanation.\n\n${src}` }],
+      max_tokens: 256, temperature: 0, stream: true,
+    }),
+  }).catch(() => { throw new Error(`MT backend unreachable at ${MT_URL}`); });
+  if (!r.ok || !r.body) throw new Error(`MT HTTP ${r.status}`);
+
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', out = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        const d = JSON.parse(payload).choices?.[0]?.delta?.content;
+        if (d) { out += d; onDelta(d); }
+      } catch {}
+    }
+  }
+  return out.trim();
+}
+
 const MAX_WAV = 44 + 10 * RATE * 2; // 10 s; client caps segments at 8 s
 // 16 kHz mono PCM16 WAV -> Int16Array, or null. Walks RIFF chunks (fmt may be 16 or 18+ bytes).
 function parseWav(b) {
@@ -161,6 +197,37 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify({ backend: 'node', target: TARGET, ok: true }));
+  }
+  if (req.method === 'POST' && req.url === '/api/segment/stream') {
+    // Same input as /api/segment, but emits server-sent events so the page can render tokens as they arrive.
+    const json = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+    if (!authed(req)) return json(401, { error: 'unauthorized' });
+    const chunks = []; let size = 0;
+    for await (const c of req) { size += c.length; if (size > MAX_WAV) return json(413, { error: 'too large' }); chunks.push(c); }
+    const pcm = parseWav(Buffer.concat(chunks));
+    if (!pcm) return json(400, { error: 'expected 16 kHz mono PCM16 WAV' });
+
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const ev = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
+    const t0 = Date.now();
+    try {
+      const src = await asr(pcm);
+      const asrMs = Date.now() - t0;
+      ev({ type: 'src', src, asrMs });
+      if (!src) { ev({ type: 'done', src: '', dst: '', asrMs, mtMs: 0, totalMs: Date.now() - t0, audioMs: Math.round(pcm.length / 16) }); }
+      else {
+        const b = Date.now();
+        const dst = await mtStream(src, (d) => ev({ type: 'delta', d }));
+        ev({ type: 'done', src, dst, asrMs, mtMs: Date.now() - b, totalMs: Date.now() - t0, audioMs: Math.round(pcm.length / 16) });
+      }
+    } catch (e) { ev({ type: 'error', error: e.message }); }
+    res.end();
+    return;
   }
   if (req.method === 'POST' && req.url === '/api/segment') {
     // WAV in (16 kHz mono PCM16, canonical 44-byte header), no VAD; same shape as the Worker

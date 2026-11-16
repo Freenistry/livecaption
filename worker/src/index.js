@@ -49,6 +49,28 @@ export default {
     if (pathname === '/api/health') {
       return json({ backend: env.BACKEND, target: env.TARGET_LANG, ok: env.BACKEND === 'workersai' ? !!env.AI : !!env.LOCAL_BACKEND_URL });
     }
+    if (pathname === '/api/segment/stream') {
+      if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+      if (!same(req.headers.get('x-app-token'), env.APP_TOKEN)) return json({ error: 'unauthorized' }, 401);
+      const wav = await req.arrayBuffer();
+      if (wav.byteLength > MAX_WAV) return json({ error: 'too large' }, 413);
+      const sse = { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform' };
+      if (env.BACKEND === 'local') {
+        const r = await fetch(`${env.LOCAL_BACKEND_URL.replace(/\/$/, '')}/api/segment/stream`, {
+          method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav,
+        });
+        if (!r.ok || !r.body) return json({ error: `local backend HTTP ${r.status}` }, 502);
+        return new Response(r.body, { status: 200, headers: sse });
+      }
+      // Workers AI here has no token streaming, so the whole line is emitted as one delta.
+      // That is honest: the page shows it arriving at once rather than pretending to type it.
+      const j = await viaWorkersAi(wav, env);
+      const body =
+        `data: ${JSON.stringify({ type: 'src', src: j.src, asrMs: j.asrMs })}\n\n` +
+        (j.dst ? `data: ${JSON.stringify({ type: 'delta', d: j.dst })}\n\n` : '') +
+        `data: ${JSON.stringify({ type: 'done', ...j, audioMs: 0 })}\n\n`;
+      return new Response(body, { headers: sse });
+    }
     if (pathname === '/api/segment') {
       if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
       if (!same(req.headers.get('x-app-token'), env.APP_TOKEN)) return json({ error: 'unauthorized' }, 401);

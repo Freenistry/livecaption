@@ -79,6 +79,13 @@ fs.mkdirSync(outDir, { recursive: true });
     audioStartPerf: window.__audioStartPerf,
     events: window.__events,
   }));
+  const rows = await page.$$eval('.cap', (els) =>
+    els.map((e) => ({
+      dst: e.querySelector('.dst')?.textContent || '',
+      lat: e.querySelector('.lat')?.textContent || '',
+    }))
+  );
+  timing.captions = rows;
   fs.writeFileSync(path.join(outDir, 'timing.json'), JSON.stringify(timing, null, 2));
   console.log('nav at', Math.round(timing.navPerf), 'ms; audio started at', Math.round(timing.audioStartPerf), 'ms');
   timing.events.forEach((e, i) =>
