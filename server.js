@@ -12,6 +12,8 @@ const SOURCE = process.env.SOURCE_LANG || 'auto';
 const RATE = 16000;
 const FRAME = RATE / 50; // 20 ms
 const PUBLIC = path.join(__dirname, 'public');
+const APP_TOKEN = process.env.APP_TOKEN || ''; // empty = open, fine for localhost
+const authed = (req) => !APP_TOKEN || req.headers['x-app-token'] === APP_TOKEN;
 
 // --- VAD -------------------------------------------------------------------
 const END_SIL_FRAMES = 35;    // 700 ms
@@ -137,6 +139,7 @@ async function processSegment(pcm, t0 = Date.now()) {
 // --- HTTP --------------------------------------------------------------------
 const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/selftest') {
+    if (!authed(req)) { res.writeHead(401, { 'content-type': 'application/json' }); return res.end('{"error":"unauthorized"}'); }
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const buf = Buffer.concat(chunks);
@@ -162,6 +165,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api/segment') {
     // WAV in (16 kHz mono PCM16, canonical 44-byte header), no VAD; same shape as the Worker
     const json = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+    if (!authed(req)) return json(401, { error: 'unauthorized' });
     const chunks = []; let size = 0;
     for await (const c of req) { size += c.length; if (size > MAX_WAV) return json(413, { error: 'too large' }); chunks.push(c); }
     const pcm = parseWav(Buffer.concat(chunks));
@@ -186,7 +190,16 @@ const server = http.createServer(async (req, res) => {
 });
 
 // --- WebSocket ---------------------------------------------------------------
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  verifyClient: (info, cb) => {
+    if (!APP_TOKEN) return cb(true);
+    let ok = false;
+    try { ok = new URL(info.req.url, 'http://localhost').searchParams.get('token') === APP_TOKEN; } catch {}
+    cb(ok, 401, 'unauthorized');
+  },
+});
 wss.on('connection', (ws) => {
   const send = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
   let busy = false, pending = null; // ponytail: 1-slot queue; newer segment replaces an unprocessed one (drop backlog, never drift)

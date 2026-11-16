@@ -32,7 +32,7 @@ curl.exe -X POST -H "content-type: audio/wav" --data-binary "@dataone.wav" http:
 node vad.test.js   # browser VAD (public/vad.js) == server VAD on data	est.pcm: 2 segments, identical samples
 ```
 
-Node's `/api/segment` has no token check. Expose it only through the Worker (or keep it on localhost).
+Node checks `x-app-token` on `/api/segment`, `/selftest` and `/ws` whenever `APP_TOKEN` is set. Set it before exposing the box through a tunnel; unset, those routes are open.
 
 ## Measured (GTX 1060 6GB, i7-7700K, whisper base on 4 CPU threads, `-ac 512`)
 
@@ -90,7 +90,7 @@ Open `https://livecaption.<you>.workers.dev/?token=<APP_TOKEN>` once; the page k
 cloudflared tunnel --url http://localhost:3000      # prints https://<random>.trycloudflare.com
 ```
 
-Put that URL in `LOCAL_BACKEND_URL` and redeploy. Quick tunnels get a new URL on every start; use a named tunnel for a stable one. The tunnel exposes Node's `/api/segment`, `/selftest` and `/ws` to anyone who finds the URL (they are unauthenticated). Fine for a test, not for long-term use. Lock it down with Cloudflare Access or a shared secret before relying on it.
+Put that URL in `LOCAL_BACKEND_URL` and redeploy. Quick tunnels get a new URL on every start; use a named tunnel for a stable one. Set `APP_TOKEN` before starting Node so `/api/segment`, `/selftest` and `/ws` all require `x-app-token` — otherwise anyone who finds the URL can burn your GPU. Many home routers' DNS filters also block `*.trycloudflare.com`, so a named tunnel on your own domain is the practical choice.
 
 ### Local dev
 
@@ -108,7 +108,7 @@ Measured through `wrangler dev --env local` → Node → local backends (same ma
 | browser-built WAV, segment 1 | Hallo, willkommen zur Besprechung. | 545 | 148 | 693 |
 | browser-built WAV, segment 2 | Heute werden wir über die Quartalsergebnisse sprechen. | 551 | 204 | 755 |
 
-The Worker adds about 10 ms locally. A tunnel and the public internet add a real round trip on top. That has not been measured.
+The Worker adds about 10 ms locally. Through a `trycloudflare.com` quick tunnel, measured warm from the same machine: server-side **774–951 ms**, but **1.71–2.51 s** round trip, so the tunnel costs roughly 0.8–1.5 s. That pushes captions past the 1 s target; a named tunnel on your own domain, or a same-LAN client, should do better. Not yet tested from a remote network.
 
 ### Free-tier notes (check current limits before relying on them)
 
