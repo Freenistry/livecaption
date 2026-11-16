@@ -124,4 +124,4 @@ The Worker adds about 10 ms locally. Through a `trycloudflare.com` quick tunnel,
 
 ## Verification recording
 
-`verify/media/caption-proof.webm` is a 1280x720 recording of the real page producing three German captions end to end. See [verify/README.md](verify/README.md) for the numbers, how it was captured, and what it does not prove.
+`verify/media/caption-proof.mp4` is a 1280x720 recording with audio of the real page producing three German captions end to end. See [verify/README.md](verify/README.md) for the numbers, how it was captured, and what it does not prove.

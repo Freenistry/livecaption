@@ -1,0 +1,18 @@
+{
+  "navPerf": 34.89999985694885,
+  "audioStartPerf": 2114.5,
+  "events": [
+    {
+      "t": 6705,
+      "dst": "Hallo, willkommen zur Besprechung."
+    },
+    {
+      "t": 11349.099999904633,
+      "dst": "Heute werden wir über die Quartalsergebnisse sprechen."
+    },
+    {
+      "t": 16199.5,
+      "dst": "Unsere Umsätze stiegen in diesem Quartal um 12%."
+    }
+  ]
+}
