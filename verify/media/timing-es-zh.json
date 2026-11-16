@@ -1,0 +1,35 @@
+{
+  "navPerf": 30.5,
+  "audioStartPerf": 1838.5999999046326,
+  "events": [
+    {
+      "t": 6160.5,
+      "dst": "",
+      "lat": ""
+    },
+    {
+      "t": 11163.400000095367,
+      "dst": "",
+      "lat": ""
+    },
+    {
+      "t": 17000,
+      "dst": "",
+      "lat": ""
+    }
+  ],
+  "captions": [
+    {
+      "dst": "本季度我们的收入增长了12%。",
+      "lat": "ASR 383 ms · MT 197 ms · total 580 ms · round trip 585 ms"
+    },
+    {
+      "dst": "今天我们将讨论本季度的结果。",
+      "lat": "ASR 347 ms · MT 202 ms · total 550 ms · round trip 554 ms"
+    },
+    {
+      "dst": "你好，欢迎参加会议。",
+      "lat": "ASR 341 ms · MT 95 ms · total 436 ms · round trip 442 ms"
+    }
+  ]
+}
