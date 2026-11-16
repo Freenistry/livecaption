@@ -39,7 +39,16 @@ Config: `SOURCE_LANG=es`, `TARGET_LANG=Simplified Chinese`.
 
 CJK renders correctly through system font fallback (Microsoft YaHei); no web font is loaded.
 
-**Source language is the dominant ASR cost.** With whisper auto-detecting, the same segment took 1,649 ms total, 1,461 ms of it ASR, because detection runs an extra encoder pass. Pinning `SOURCE_LANG=es` dropped it to 460 ms warm. For a fixed pair, always pin it.
+**Pinning the source language saves ~220 ms per segment.** Same Spanish clip, 4 runs each, alternating order so warm-up cannot skew it:
+
+| whisper `language=` | ASR, ms | transcript |
+|---|---|---|
+| `auto` | 573, 582, 598, 603 (median **590**) | Hola, bienvenidos a la reunión. |
+| `es` | 349, 362, 365, 378 (median **366**) | identical |
+
+That is **224 ms, 38% of ASR**, because detection runs an extra encoder pass over the same audio. `start.ps1 -SourceLang es` now passes `-l es` to whisper-server as well, so the pin applies both as the server default and per request.
+
+An earlier version of this file claimed 1,461 → 340 ms. That compared a cold run against warm ones and was wrong; the honest steady-state figure is the table above.
 
 Speech for this clip came from Edge TTS (`es-ES-ElviraNeural`); Windows SAPI only has en-US voices on this machine. Piper was tried first and its Spanish voices crash the Windows binary with `"aɪ" is not a single codepoint` — a phoneme-map incompatibility, not bad data.
 

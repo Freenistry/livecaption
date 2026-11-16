@@ -19,7 +19,7 @@ Write-Host "language pair: $SourceLang -> $TargetLang"
 $procs = @()
 try {
   $procs += Start-Process -PassThru -WindowStyle Hidden "$root\vendor\whisper\Release\whisper-server.exe" `
-    -ArgumentList '-m', "`"$root\models\ggml-base.bin`"", '--host', '127.0.0.1', '--port', '8081', '-t', '4', '-l', 'auto', '-ac', '512' `
+    -ArgumentList '-m', "`"$root\models\ggml-base.bin`"", '--host', '127.0.0.1', '--port', '8081', '-t', '4', '-l', $SourceLang, '-ac', '512' `
     -RedirectStandardOutput "$data\whisper.log" -RedirectStandardError "$data\whisper.err.log"
   $procs += Start-Process -PassThru -WindowStyle Hidden "$bench\llama-server.exe" `
     -ArgumentList '-m', "`"$bench\Hy-MT2-Q4.gguf`"", '--host', '127.0.0.1', '--port', '8099', '-ngl', '99', '--jinja', '-c', '2048' `
