@@ -49,6 +49,7 @@ fs.mkdirSync(outDir, { recursive: true });
               window.__events.push({
                 t: performance.now(),
                 dst: n.querySelector('.dst')?.textContent || '',
+                lat: n.querySelector('.lat')?.textContent || '',
               });
             }
           }

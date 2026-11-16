@@ -176,7 +176,7 @@ const server = http.createServer(async (req, res) => {
       const asrMs = Date.now() - t0;
       const b = Date.now();
       const dst = src ? await mt(src) : '';
-      json(200, { src, dst, asrMs, mtMs: src ? Date.now() - b : 0, totalMs: Date.now() - t0 });
+      json(200, { src, dst, asrMs, mtMs: src ? Date.now() - b : 0, totalMs: Date.now() - t0, audioMs: Math.round(pcm.length / 16) });
     } catch (e) { json(502, { error: e.message }); }
     return;
   }
