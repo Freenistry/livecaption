@@ -9,6 +9,7 @@ Node + one dependency (`ws`). No build step.
 ```powershell
 .\setup.ps1   # downloads whisper.cpp b5454 + ggml-base.bin if missing, npm install, checks ..\bench
 .\start.ps1   # whisper-server :8081, llama-server :8099, node :3000; Ctrl+C stops all
+.\start.ps1 -SourceLang es -TargetLang "Simplified Chinese"   # fixed pair; keeps whisper from spending an extra pass on language detection
 ```
 
 Open http://localhost:3000 and click **Start mic**.

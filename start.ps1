@@ -1,9 +1,20 @@
 # Start whisper-server (:8081) + llama-server (:8099), wait for health, run node. Ctrl+C kills all.
+# Usage: .\start.ps1 -SourceLang es -TargetLang "Simplified Chinese"
+# Omit the flags to fall back to SOURCE_LANG/TARGET_LANG from the environment, then to auto/German.
+param(
+  [string]$SourceLang = $(if ($env:SOURCE_LANG) { $env:SOURCE_LANG } else { 'auto' }),
+  [string]$TargetLang = $(if ($env:TARGET_LANG) { $env:TARGET_LANG } else { 'German' })
+)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $bench = if ($env:VENDOR_BENCH_DIR) { $env:VENDOR_BENCH_DIR } else { Join-Path $root '..\bench' }
 $data = Join-Path $root 'data'
 New-Item -ItemType Directory -Force $data | Out-Null
+
+# Node reads these; whisper gets -l auto and detects per request unless SOURCE_LANG pins it.
+$env:SOURCE_LANG = $SourceLang
+$env:TARGET_LANG = $TargetLang
+Write-Host "language pair: $SourceLang -> $TargetLang"
 
 $procs = @()
 try {
