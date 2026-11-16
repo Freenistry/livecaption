@@ -121,3 +121,7 @@ The Worker adds about 10 ms locally. Through a `trycloudflare.com` quick tunnel,
 - **The whole `workersai` path.** The request shapes follow the Cloudflare model schemas (checked 2026-11-16): whisper takes `audio` as a base64 string and returns `text` and `transcription_info.language`; m2m100 takes `{text, source_lang, target_lang}` and returns `translated_text`. None of it has been run, and latency and quality are unknown.
 - Deployed behavior: assets binding, secrets, latency over a tunnel.
 - The browser mic path against the Worker. The VAD and WAV encoder were tested in Node; the AudioWorklet capture was not changed.
+
+## Verification recording
+
+`verify/media/caption-proof.webm` is a 1280x720 recording of the real page producing three German captions end to end. See [verify/README.md](verify/README.md) for the numbers, how it was captured, and what it does not prove.

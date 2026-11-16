@@ -1,0 +1,12 @@
+{
+  "name": "livecaption-verify",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Records the live-caption page end to end with a synthetic microphone",
+  "scripts": {
+    "record": "node record.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}
