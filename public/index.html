@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Captions</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #111; color: #eee; padding: 16px; max-width: 900px; margin-inline: auto; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button { font-size: 1rem; padding: 8px 18px; border-radius: 6px; border: 0; background: #2d6cdf; color: #fff; cursor: pointer; }
+  button.on { background: #c33; }
+  #conn::before { content: "●"; margin-right: 4px; }
+  #conn.ok { color: #4c4; } #conn.bad { color: #c44; }
+  #err { color: #f77; min-height: 1.4em; margin: 8px 0; }
+  .cap { border-bottom: 1px solid #333; padding: 10px 0; }
+  .dst { font-size: 1.6rem; line-height: 1.3; }
+  .src { font-size: .9rem; color: #999; margin-top: 4px; }
+  .lat { font-size: .75rem; color: #6a6; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <button id="btn">Start mic</button>
+  <span id="conn" class="bad">disconnected</span>
+</header>
+<div id="err" role="alert"></div>
+<main id="caps" aria-live="polite"></main>
+<script>
+const $ = (id) => document.getElementById(id);
+let ws, ctx, stream, node;
+
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { $('conn').className = 'ok'; $('conn').textContent = 'connected'; };
+  ws.onclose = () => { $('conn').className = 'bad'; $('conn').textContent = 'disconnected'; setTimeout(connect, 1000); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'status') {
+      if (m.level === 'info') $('conn').textContent = m.msg;
+      else $('err').textContent = m.msg;
+      return;
+    }
+    $('err').textContent = '';
+    const d = document.createElement('div');
+    d.className = 'cap';
+    d.innerHTML = '<div class="dst"></div><div class="src"></div><div class="lat"></div>';
+    d.children[0].textContent = m.dst;
+    d.children[1].textContent = m.src;
+    d.children[2].textContent = `ASR ${m.asrMs} ms · MT ${m.mtMs} ms · total ${m.totalMs} ms`;
+    $('caps').prepend(d);
+    while ($('caps').children.length > 6) $('caps').lastChild.remove();
+  };
+}
+
+// AudioWorklet: downsample native rate -> 16 kHz mono Int16, post ~100 ms frames.
+const worklet = `
+class Pcm16 extends AudioWorkletProcessor {
+  constructor() { super(); this.ratio = sampleRate / 16000; this.pos = 0; this.out = new Int16Array(1600); this.n = 0; }
+  process([input]) {
+    const ch = input[0];
+    if (!ch) return true;
+    // box-filter decimation: average source samples falling into each output sample
+    for (; this.pos < ch.length; this.pos += this.ratio) {
+      const a = Math.floor(this.pos), b = Math.min(ch.length, Math.max(a + 1, Math.floor(this.pos + this.ratio)));
+      let s = 0; for (let i = a; i < b; i++) s += ch[i];
+      const v = Math.max(-1, Math.min(1, s / (b - a)));
+      this.out[this.n++] = v * 32767;
+      if (this.n === this.out.length) { this.port.postMessage(this.out.buffer, [this.out.buffer]); this.out = new Int16Array(1600); this.n = 0; }
+    }
+    this.pos -= ch.length;
+    return true;
+  }
+}
+registerProcessor('pcm16', Pcm16);`;
+
+async function start() {
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  ctx = new AudioContext();
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: 'text/javascript' })));
+  node = new AudioWorkletNode(ctx, 'pcm16');
+  node.port.onmessage = (e) => ws.readyState === 1 && ws.send(e.data);
+  ctx.createMediaStreamSource(stream).connect(node);
+}
+
+function stop() {
+  stream?.getTracks().forEach((t) => t.stop());
+  ctx?.close();
+  ctx = stream = node = null;
+}
+
+$('btn').onclick = async () => {
+  if (ctx) { stop(); $('btn').textContent = 'Start mic'; $('btn').classList.remove('on'); return; }
+  try {
+    await start();
+    $('btn').textContent = 'Stop mic'; $('btn').classList.add('on'); $('err').textContent = '';
+  } catch (e) { stop(); $('err').textContent = `Mic error: ${e.message}`; }
+};
+connect();
+</script>
+</body>
+</html>

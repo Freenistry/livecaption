@@ -1,0 +1,14 @@
+{
+  "name": "livecaption",
+  "version": "1.0.0",
+  "description": "Live translated captions POC",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "ws": "^8.23.0"
+  },
+  "private": true
+}
