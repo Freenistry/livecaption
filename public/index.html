@@ -22,36 +22,52 @@
 <body>
 <header>
   <button id="btn">Start mic</button>
-  <span id="conn" class="bad">disconnected</span>
+  <span id="conn" class="bad">checking…</span>
 </header>
 <div id="err" role="alert"></div>
 <main id="caps" aria-live="polite"></main>
+<script src="vad.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-let ws, ctx, stream, node;
+let ctx, stream, node, vad;
+// token: pass ?token=... once; remembered in this browser
+const qs = new URLSearchParams(location.search).get('token');
+let token = qs || '';
+try { if (qs) localStorage.setItem('appToken', qs); else token = localStorage.getItem('appToken') || ''; } catch {}
 
-function connect() {
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { $('conn').className = 'ok'; $('conn').textContent = 'connected'; };
-  ws.onclose = () => { $('conn').className = 'bad'; $('conn').textContent = 'disconnected'; setTimeout(connect, 1000); };
-  ws.onmessage = (e) => {
-    const m = JSON.parse(e.data);
-    if (m.type === 'status') {
-      if (m.level === 'info') $('conn').textContent = m.msg;
-      else $('err').textContent = m.msg;
-      return;
-    }
+function status(ok, msg) { $('conn').className = ok ? 'ok' : 'bad'; $('conn').textContent = msg; }
+
+function show(m) {
+  const d = document.createElement('div');
+  d.className = 'cap';
+  d.innerHTML = '<div class="dst"></div><div class="src"></div><div class="lat"></div>';
+  d.children[0].textContent = m.dst;
+  d.children[1].textContent = m.src;
+  d.children[2].textContent = `ASR ${m.asrMs} ms · MT ${m.mtMs} ms · total ${m.totalMs} ms · round trip ${m.rttMs} ms`;
+  $('caps').prepend(d);
+  while ($('caps').children.length > 6) $('caps').lastChild.remove();
+}
+
+// ponytail: 1 request in flight + 1-slot backlog; a newer segment replaces an unsent one (drop backlog, never drift)
+let busy = false, pending = null;
+async function send(pcm) {
+  if (busy) { if (pending) $('err').textContent = 'dropped a segment (falling behind)'; pending = pcm; return; }
+  busy = true;
+  const t0 = performance.now();
+  try {
+    const r = await fetch('/api/segment', { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-app-token': token }, body: Vad.toWav(pcm) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error('Unauthorized: open this page with ?token=YOUR_APP_TOKEN');
+    if (!r.ok) throw new Error(`/api/segment failed (HTTP ${r.status}): ${j.error || r.statusText}`);
+    status(true, 'ok');
     $('err').textContent = '';
-    const d = document.createElement('div');
-    d.className = 'cap';
-    d.innerHTML = '<div class="dst"></div><div class="src"></div><div class="lat"></div>';
-    d.children[0].textContent = m.dst;
-    d.children[1].textContent = m.src;
-    d.children[2].textContent = `ASR ${m.asrMs} ms · MT ${m.mtMs} ms · total ${m.totalMs} ms`;
-    $('caps').prepend(d);
-    while ($('caps').children.length > 6) $('caps').lastChild.remove();
-  };
+    if (j.src) show({ ...j, rttMs: Math.round(performance.now() - t0) });
+  } catch (e) {
+    status(false, 'error');
+    $('err').textContent = e.message;
+  }
+  busy = false;
+  if (pending) { const p = pending; pending = null; send(p); }
 }
 
 // AudioWorklet: downsample native rate -> 16 kHz mono Int16, post ~100 ms frames.
@@ -80,11 +96,13 @@ async function start() {
   ctx = new AudioContext();
   await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: 'text/javascript' })));
   node = new AudioWorkletNode(ctx, 'pcm16');
-  node.port.onmessage = (e) => ws.readyState === 1 && ws.send(e.data);
+  vad = Vad.createVad(send);
+  node.port.onmessage = (e) => vad.push(new Int16Array(e.data));
   ctx.createMediaStreamSource(stream).connect(node);
 }
 
 function stop() {
+  vad?.flush(); vad = null;
   stream?.getTracks().forEach((t) => t.stop());
   ctx?.close();
   ctx = stream = node = null;
@@ -97,7 +115,7 @@ $('btn').onclick = async () => {
     $('btn').textContent = 'Stop mic'; $('btn').classList.add('on'); $('err').textContent = '';
   } catch (e) { stop(); $('err').textContent = `Mic error: ${e.message}`; }
 };
-connect();
+fetch('/api/health').then((r) => r.json()).then((h) => status(h.ok, `${h.backend} → ${h.target}`)).catch(() => status(false, 'health check failed'));
 </script>
 </body>
 </html>

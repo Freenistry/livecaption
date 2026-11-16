@@ -1,0 +1,14 @@
+{
+  "name": "livecaption-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:local": "wrangler dev --env local",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir dist"
+  },
+  "devDependencies": {
+    "wrangler": "4.162.0"
+  }
+}

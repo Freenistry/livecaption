@@ -3,3 +3,7 @@ models/
 node_modules/
 data/
 *.log
+worker/node_modules/
+worker/dist/
+worker/.wrangler/
+worker/.dev.vars

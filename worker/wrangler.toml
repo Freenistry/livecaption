@@ -1,0 +1,25 @@
+name = "livecaption"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# Same client file as the Node server; not duplicated.
+[assets]
+directory = "../public"
+binding = "ASSETS"
+
+[ai]
+binding = "AI"
+
+[vars]
+BACKEND = "local"          # local | workersai
+TARGET_LANG = "de"         # workersai: m2m100 code. local: informational only (Node's TARGET_LANG decides)
+LOCAL_BACKEND_URL = "https://REPLACE-ME.trycloudflare.com"
+# APP_TOKEN: do NOT put a real token here. Set it with `npx wrangler secret put APP_TOKEN`
+# and locally in worker/.dev.vars (gitignored).
+
+# Account-free local dev: `npm run dev:local`. The [ai] binding always proxies to Cloudflare
+# (needs login), and bindings are not inherited by envs, so this env simply omits it.
+[env.local.vars]
+BACKEND = "local"
+TARGET_LANG = "German"
+LOCAL_BACKEND_URL = "http://127.0.0.1:3000"

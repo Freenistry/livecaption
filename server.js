@@ -105,6 +105,23 @@ async function mt(src) {
   return (j.choices?.[0]?.message?.content || '').trim();
 }
 
+const MAX_WAV = 44 + 10 * RATE * 2; // 10 s; client caps segments at 8 s
+// 16 kHz mono PCM16 WAV -> Int16Array, or null. Walks RIFF chunks (fmt may be 16 or 18+ bytes).
+function parseWav(b) {
+  if (b.length < 12 || b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WAVE') return null;
+  let fmt = false;
+  for (let o = 12; o + 8 <= b.length; o += 8 + b.readUInt32LE(o + 4) + (b.readUInt32LE(o + 4) & 1)) {
+    const id = b.toString('ascii', o, o + 4);
+    if (id === 'fmt ') fmt = b.readUInt16LE(o + 8) === 1 && b.readUInt16LE(o + 10) === 1 && b.readUInt32LE(o + 12) === RATE && b.readUInt16LE(o + 22) === 16;
+    if (id === 'data') {
+      if (!fmt) return null;
+      const c = Buffer.from(b.subarray(o + 8, o + 8 + (Math.min(b.readUInt32LE(o + 4), b.length - o - 8) & ~1))); // copy -> aligned
+      return new Int16Array(c.buffer, c.byteOffset, c.length >> 1);
+    }
+  }
+  return null;
+}
+
 let nextId = 1;
 async function processSegment(pcm, t0 = Date.now()) {
   const a = Date.now();
@@ -138,11 +155,32 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  if (req.method === 'GET' && req.url === '/api/health') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ backend: 'node', target: TARGET, ok: true }));
+  }
+  if (req.method === 'POST' && req.url === '/api/segment') {
+    // WAV in (16 kHz mono PCM16, canonical 44-byte header), no VAD; same shape as the Worker
+    const json = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+    const chunks = []; let size = 0;
+    for await (const c of req) { size += c.length; if (size > MAX_WAV) return json(413, { error: 'too large' }); chunks.push(c); }
+    const pcm = parseWav(Buffer.concat(chunks));
+    if (!pcm) return json(400, { error: 'expected 16 kHz mono PCM16 WAV' });
+    try {
+      const t0 = Date.now();
+      const src = await asr(pcm);
+      const asrMs = Date.now() - t0;
+      const b = Date.now();
+      const dst = src ? await mt(src) : '';
+      json(200, { src, dst, asrMs, mtMs: src ? Date.now() - b : 0, totalMs: Date.now() - t0 });
+    } catch (e) { json(502, { error: e.message }); }
+    return;
+  }
   const file = path.join(PUBLIC, path.normalize(req.url.split('?')[0] === '/' ? 'index.html' : req.url.split('?')[0]));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
-    res.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/octet-stream' });
+    res.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.js') ? 'text/javascript' : 'application/octet-stream' });
     res.end(data);
   });
 });
