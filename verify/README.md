@@ -108,3 +108,13 @@ ffmpeg -i video/silent.webm -itsoffset <audioStartPerf/1000> -i media\speech.wav
 - The Workers AI backend has no token streaming, so it emits the whole line as one delta. It does not pretend otherwise.
 - Two runs, one machine. Speech is synthetic in both clips.
 - Translation quality was eyeballed, not scored. No chrF/COMET was computed for either pair.
+
+## Two-stage English → Chinese (`/live.html`)
+
+`record-live.js` records the `/live` page the same way: the stubbed mic plays a WAV, and the audio is muxed back in afterwards with `ffmpeg -itsoffset <audioStartPerf/1000>`.
+
+Input was the first 30 s of a YouTube talk (one English speaker). The page showed 52 grey Bergamot partial updates and 6 white Hy-MT2 finals. The finals landed 438–688 ms after each pause (Parakeet 182–334 ms, Hy-MT2 254–480 ms). A `cargo` build was running on the same CPU during the take.
+
+`media/live-en-zh-final.png` is the last frame and `media/live-en-zh-timing.json` logs every caption change. The video itself is not committed because its audio is someone else's YouTube content.
+
+Visible flaws: the 5 s segment cap cuts mid-word ("sk It's a design skill…"), and Bergamot partials mangle names ("Leon Lin" → "嚎林") until the final replaces them.

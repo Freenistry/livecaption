@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Captions EN→ZH</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #111; color: #eee; padding: 16px; max-width: 900px; margin-inline: auto; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button { font-size: 1rem; padding: 8px 18px; border-radius: 6px; border: 0; background: #2d6cdf; color: #fff; cursor: pointer; }
+  button.on { background: #c33; }
+  #conn::before { content: "●"; margin-right: 4px; }
+  #conn.ok { color: #4c4; } #conn.bad { color: #c44; }
+  #err { color: #f77; min-height: 1.4em; margin: 8px 0; }
+  .cap { border-bottom: 1px solid #333; padding: 10px 0; }
+  .zh { font-size: 1.6rem; line-height: 1.4; min-height: 1.4em; }
+  .en { font-size: .9rem; color: #999; margin-top: 4px; }
+  .lat { font-size: .75rem; color: #6a6; font-variant-numeric: tabular-nums; }
+  /* partial = fast but rough (Bergamot); it brightens when the accurate final (Hy-MT2) replaces it */
+  .cap.partial .zh { color: #bbb; }
+  .cap .zh { transition: color 200ms ease; }
+  @media (prefers-reduced-motion: reduce) { .cap .zh { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <button id="btn">Start mic</button>
+  <span id="conn" class="bad">idle</span>
+</header>
+<div id="err" role="alert"></div>
+<main id="caps" aria-live="polite"></main>
+<script>
+const $ = (id) => document.getElementById(id);
+const qs = new URLSearchParams(location.search).get('token');
+let token = qs || '';
+try { if (qs) localStorage.setItem('appToken', qs); else token = localStorage.getItem('appToken') || ''; } catch {}
+const status = (ok, msg) => { $('conn').className = ok ? 'ok' : 'bad'; $('conn').textContent = msg; };
+
+const caps = new Map(); // seg -> element
+function cap(seg) {
+  let d = caps.get(seg);
+  if (!d) {
+    d = document.createElement('div');
+    d.className = 'cap partial';
+    d.innerHTML = '<div class="zh"></div><div class="en"></div><div class="lat"></div>';
+    $('caps').prepend(d); caps.set(seg, d);
+    while ($('caps').children.length > 6) { const old = $('caps').lastChild; for (const [k, v] of caps) if (v === old) caps.delete(k); old.remove(); }
+  }
+  return d;
+}
+function onMsg(m) {
+  if (m.type === 'status') { if (m.level === 'error') $('err').textContent = m.msg; else status(true, m.msg); return; }
+  const d = m.seg === undefined ? null : cap(m.seg);
+  if (!d) return;
+  if (d.classList.contains('partial')) {
+    if (m.type === 'en_partial' || m.type === 'endpoint') d.children[1].textContent = m.en;
+    if (m.type === 'zh_partial') { d.children[0].textContent = m.zh; d.children[2].textContent = `partial: MT ${m.mtMs} ms`; }
+  }
+  if (m.type === 'final') {
+    d.classList.remove('partial');
+    d.children[0].textContent = m.zh; d.children[1].textContent = m.en;
+    d.children[2].textContent = `final ${m.sinceEndpointMs} ms after pause (ASR ${m.asrMs} · MT ${m.mtMs}${m.mt === 'hymt' ? '' : ' · ' + m.mt})`;
+  }
+}
+
+// AudioWorklet: native rate -> 16 kHz mono Int16, 80 ms frames (the streaming model's chunk size).
+const worklet = `
+class Pcm16 extends AudioWorkletProcessor {
+  constructor() { super(); this.ratio = sampleRate / 16000; this.pos = 0; this.out = new Int16Array(1280); this.n = 0; }
+  process([input]) {
+    const ch = input[0];
+    if (!ch) return true;
+    for (; this.pos < ch.length; this.pos += this.ratio) {
+      const a = Math.floor(this.pos), b = Math.min(ch.length, Math.max(a + 1, Math.floor(this.pos + this.ratio)));
+      let s = 0; for (let i = a; i < b; i++) s += ch[i];
+      this.out[this.n++] = Math.max(-1, Math.min(1, s / (b - a))) * 32767;
+      if (this.n === this.out.length) { this.port.postMessage(this.out.buffer, [this.out.buffer]); this.out = new Int16Array(1280); this.n = 0; }
+    }
+    this.pos -= ch.length;
+    return true;
+  }
+}
+registerProcessor('pcm16', Pcm16);`;
+
+let ctx, stream, ws;
+async function start() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/live?token=${encodeURIComponent(token)}`);
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = (e) => { try { onMsg(JSON.parse(e.data)); } catch {} };
+  ws.onclose = (e) => { status(false, e.code === 1006 && token === '' ? 'closed (token needed? add ?token=…)' : 'disconnected'); };
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('could not connect to /live')); });
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  ctx = new AudioContext();
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: 'text/javascript' })));
+  const node = new AudioWorkletNode(ctx, 'pcm16');
+  node.port.onmessage = (e) => { if (ws.readyState === 1) ws.send(e.data); };
+  ctx.createMediaStreamSource(stream).connect(node);
+}
+function stop() {
+  if (ws?.readyState === 1) ws.send('flush');
+  stream?.getTracks().forEach((t) => t.stop()); ctx?.close();
+  const w = ws; setTimeout(() => w?.close(), 3000); // let the last final arrive
+  ctx = stream = ws = null;
+}
+$('btn').onclick = async () => {
+  if (ctx) { stop(); $('btn').textContent = 'Start mic'; $('btn').classList.remove('on'); return; }
+  try { await start(); $('btn').textContent = 'Stop mic'; $('btn').classList.add('on'); $('err').textContent = ''; }
+  catch (e) { stop(); $('err').textContent = `Error: ${e.message}`; }
+};
+</script>
+</body>
+</html>

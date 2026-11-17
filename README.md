@@ -18,6 +18,66 @@ Open http://localhost:3000 and click **Start mic**.
 
 Env (server.js): `PORT=3000`, `ASR_URL=http://127.0.0.1:8081`, `MT_URL=http://127.0.0.1:8099`, `TARGET_LANG=German`, `SOURCE_LANG=auto`.
 
+## Live two-stage captions, English → Chinese (`/live`)
+
+Open http://localhost:3000/live.html. The page streams 80 ms PCM frames over a WebSocket and gets two kinds of captions:
+
+| | Fast partial (grey) | Final (replaces it) |
+|---|---|---|
+| ASR | NeMo streaming FastConformer CTC 80 ms, int8, CPU 2 threads (sherpa-onnx) | Parakeet TDT-CTC 110M int8, CPU, on the whole segment |
+| MT | Bergamot en→zh-Hans 2.2 (Firefox's model), WASM in a worker thread | Hy-MT2 via llama-server :8099 (falls back to Bergamot if it is down) |
+| When | every time the English partial changes | after a 0.5 s pause, or every 5 s of continuous speech |
+
+Measured with `node live.test.js <clip.wav> ws://127.0.0.1:3000/live` on the first 30 s of a YouTube talk (one English speaker), warm, light background load:
+
+| | p50 | p90 / max |
+|---|---|---|
+| Chinese partial: Bergamot time per update | 31 ms | 58 ms |
+| Chinese partial: English change → Chinese sent | 32 ms | 59 ms |
+| Final: pause detected → Chinese final sent | 553 ms | 755 ms max |
+| Final: Parakeet / Hy-MT2 | 190 ms / 390 ms | |
+
+The English partial itself is ~1 ms of work per 80 ms chunk (45 ms worst). A word still shows up about 0.35–0.45 s after it is spoken, because the streaming model has to hear past it; no model tested gets that under ~0.3 s.
+
+Partials only show the prefix two consecutive translations agree on and do not shrink when the newest is shorter. On the lab recording that cut visible retractions from 103 to 21 in 30 s.
+
+Everything on the fast path is CPU. When another program saturated the CPU (a Rust build), finals slipped to 2–10 s. Keep the box otherwise idle.
+
+`setup.ps1` downloads the three models (~300 MB, every file sha256-pinned). The Parakeet tarball needs Git for Windows' `tar` + `bzip2`: Windows' own `tar.exe` hangs on it.
+
+## Scoring models and approaches (`eval.js`)
+
+```powershell
+node eval.js                                   # 150 sentences, ~6 min; needs Hy-MT2 on :8099
+node eval.js n=30                              # quick check
+node eval.js maxlen=8 label=maxlen8            # different endpoint setting
+node eval.js mt=http://127.0.0.1:8199 label=x  # another llama-server model as the final MT
+```
+
+Test set: **FLEURS dev** (Google, CC-BY-4.0). 150 English sentences read aloud by real people, each with a human Chinese translation of the same sentence. The first run downloads 171 MB (pinned revision, sha256-checked).
+
+Every run prints one row per approach and appends them to `eval-results.jsonl`, so runs can be compared over time. Per-sentence outputs go to `data/eval-<label>.json`, for reading what the models actually said.
+
+| approach | what it is |
+|---|---|
+| `fast` | The grey partial: streaming ASR text per segment → Bergamot |
+| `final` | The white line in `/live`: segments cut by the endpointer → Parakeet → final MT |
+| `sentence` | Same models on the whole sentence, no cuts. The best `final` could get with perfect segmentation |
+| `mt:final`, `mt:bergamot` | The human English text → MT only. Pure translation quality, no speech errors |
+
+| column | meaning | better |
+|---|---|---|
+| `chrF` | Character n-gram overlap with the human Chinese, 0–100 (sacrebleu's formula; the self-check matches it to 1e-6) | higher |
+| `WER%` | English words wrong vs. what was said | lower |
+| `ms p50/p90` | Compute per segment (fast: MT only; final: ASR + MT) | lower |
+| `segs/sentence` | How many pieces the endpointer cut each sentence into | — |
+
+How to read it:
+- **Compare rows, not absolute numbers.** chrF of 30 vs. 33 on Chinese is a real gap; ±1 is noise at 150 sentences.
+- `sentence` minus `final` is what segmentation costs you. `mt:final` minus `sentence` is what ASR errors cost you.
+- chrF penalizes a correct paraphrase that uses different characters. Read `data/eval-<label>.json` before trusting a small win. COMET (neural, closer to human judgment) is the next step up, but it needs a ~2 GB model.
+- Only this one test set: read speech, one sentence per clip, no names from the YouTube clip.
+
 ## Test without a mic
 
 ```powershell
@@ -33,7 +93,7 @@ curl.exe -X POST -H "content-type: audio/wav" --data-binary "@dataone.wav" http:
 node vad.test.js   # browser VAD (public/vad.js) == server VAD on data	est.pcm: 2 segments, identical samples
 ```
 
-Node checks `x-app-token` on `/api/segment`, `/selftest` and `/ws` whenever `APP_TOKEN` is set. Set it before exposing the box through a tunnel; unset, those routes are open.
+Node checks `x-app-token` on `/api/segment` and `/selftest`, and `?token=` on `/ws` and `/live`, whenever `APP_TOKEN` is set. Set it before exposing the box through a tunnel; unset, those routes are open.
 
 ## Measured (GTX 1060 6GB, i7-7700K, whisper base on 4 CPU threads, `-ac 512`)
 

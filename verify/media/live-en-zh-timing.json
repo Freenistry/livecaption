@@ -1,0 +1,354 @@
+{
+ "audioStartPerf": 2032.7999999523163,
+ "audioDur": 30,
+ "events": [
+  {
+   "t": 2966.5,
+   "kind": "partial",
+   "zh": "",
+   "lat": ""
+  },
+  {
+   "t": 3136.899999856949,
+   "kind": "partial",
+   "zh": "i",
+   "lat": "partial: MT 15 ms"
+  },
+  {
+   "t": 3618.7999999523163,
+   "kind": "partial",
+   "zh": "琳琳",
+   "lat": "partial: MT 23 ms"
+  },
+  {
+   "t": 3949.699999809265,
+   "kind": "partial",
+   "zh": "琳恩一直",
+   "lat": "partial: MT 33 ms"
+  },
+  {
+   "t": 4605.599999904633,
+   "kind": "partial",
+   "zh": "嵵来絵",
+   "lat": "partial: MT 47 ms"
+  },
+  {
+   "t": 5280.599999904633,
+   "kind": "partial",
+   "zh": "噱",
+   "lat": "partial: MT 72 ms"
+  },
+  {
+   "t": 6869.899999856949,
+   "kind": "partial",
+   "zh": "噱林在 github 上一直是热门作",
+   "lat": "partial: MT 72 ms"
+  },
+  {
+   "t": 7921.699999809265,
+   "kind": "partial",
+   "zh": "",
+   "lat": ""
+  },
+  {
+   "t": 8107.599999904633,
+   "kind": "final",
+   "zh": "Leon Lin 已经成为了 GitHub 上最热门的作家了，这主要得益于他的写作风格。",
+   "lat": "final 658 ms after pause (ASR 224 · MT 433)"
+  },
+  {
+   "t": 8120.199999809265,
+   "kind": "partial",
+   "zh": "s",
+   "lat": "partial: MT 16 ms"
+  },
+  {
+   "t": 8746.099999904633,
+   "kind": "partial",
+   "zh": "技能",
+   "lat": "partial: MT 26 ms"
+  },
+  {
+   "t": 8913.399999856949,
+   "kind": "partial",
+   "zh": "技能,这是一种设计",
+   "lat": "partial: MT 24 ms"
+  },
+  {
+   "t": 9710.599999904633,
+   "kind": "partial",
+   "zh": "技能是他",
+   "lat": "partial: MT 35 ms"
+  },
+  {
+   "t": 10359.199999809265,
+   "kind": "partial",
+   "zh": "技能是他做出的一项设计技能,而且一直",
+   "lat": "partial: MT 43 ms"
+  },
+  {
+   "t": 11346.199999809265,
+   "kind": "partial",
+   "zh": "技能是他制作的一项设计技能,也是",
+   "lat": "partial: MT 61 ms"
+  },
+  {
+   "t": 11657.5,
+   "kind": "partial",
+   "zh": "技能是他擅长的设计技能,也是",
+   "lat": "partial: MT 56 ms"
+  },
+  {
+   "t": 12477.099999904633,
+   "kind": "partial",
+   "zh": "技能是他制作的一项设计技能,也是 github 上最热门的设计技能",
+   "lat": "partial: MT 81 ms"
+  },
+  {
+   "t": 13199,
+   "kind": "partial",
+   "zh": "",
+   "lat": ""
+  },
+  {
+   "t": 13221.099999904633,
+   "kind": "final",
+   "zh": "这是他自己创造的设计技能，而且它已经成为 GitHub 上最热门的设计技能了。",
+   "lat": "final 662 ms after pause (ASR 182 · MT 480)"
+  },
+  {
+   "t": 13531.099999904633,
+   "kind": "partial",
+   "zh": "它们也",
+   "lat": "partial: MT 16 ms"
+  },
+  {
+   "t": 13859.599999904633,
+   "kind": "partial",
+   "zh": "他们还发",
+   "lat": "partial: MT 19 ms"
+  },
+  {
+   "t": 14183.399999856949,
+   "kind": "partial",
+   "zh": "他们还发布了",
+   "lat": "partial: MT 26 ms"
+  },
+  {
+   "t": 14522.5,
+   "kind": "partial",
+   "zh": "他们还发布他构建的内容",
+   "lat": "partial: MT 39 ms"
+  },
+  {
+   "t": 15157.199999809265,
+   "kind": "partial",
+   "zh": "他们还会发布他在 x ",
+   "lat": "partial: MT 39 ms"
+  },
+  {
+   "t": 15334.699999809265,
+   "kind": "partial",
+   "zh": "他们还会发布他在 x 和",
+   "lat": "partial: MT 48 ms"
+  },
+  {
+   "t": 15660.299999952316,
+   "kind": "partial",
+   "zh": "他们还发布了他在 x 和设计基础上构建的内容",
+   "lat": "partial: MT 57 ms"
+  },
+  {
+   "t": 16293.299999952316,
+   "kind": "partial",
+   "zh": "他们还发布了他在x上积累的东西以及他",
+   "lat": "partial: MT 50 ms"
+  },
+  {
+   "t": 18259,
+   "kind": "final",
+   "zh": "他还在 X 上发布自己制作的作品，而他从人工智能中得到的设计则与原来的样子毫无相似之处。",
+   "lat": "final 580 ms after pause (ASR 241 · MT 339)"
+  },
+  {
+   "t": 18364.89999985695,
+   "kind": "partial",
+   "zh": "",
+   "lat": ""
+  },
+  {
+   "t": 18509.89999985695,
+   "kind": "partial",
+   "zh": "但",
+   "lat": "partial: MT 16 ms"
+  },
+  {
+   "t": 18650.5,
+   "kind": "partial",
+   "zh": "但大多数",
+   "lat": "partial: MT 12 ms"
+  },
+  {
+   "t": 18994.699999809265,
+   "kind": "partial",
+   "zh": "但大多数人",
+   "lat": "partial: MT 22 ms"
+  },
+  {
+   "t": 19297.5,
+   "kind": "partial",
+   "zh": "但大多数人都",
+   "lat": "partial: MT 19 ms"
+  },
+  {
+   "t": 19641.099999904633,
+   "kind": "partial",
+   "zh": "但大多数人会,现在他",
+   "lat": "partial: MT 35 ms"
+  },
+  {
+   "t": 20925.199999809265,
+   "kind": "partial",
+   "zh": "但大多数人都会",
+   "lat": "partial: MT 50 ms"
+  },
+  {
+   "t": 21239.099999904633,
+   "kind": "partial",
+   "zh": "但大多数人已经得到,现在他写了一篇文章,揭示了",
+   "lat": "partial: MT 42 ms"
+  },
+  {
+   "t": 21569.599999904633,
+   "kind": "partial",
+   "zh": "但大多数人都会接受,现在他写了一篇文章,揭示了",
+   "lat": "partial: MT 55 ms"
+  },
+  {
+   "t": 22043.699999809265,
+   "kind": "partial",
+   "zh": "但大多数人都会接受,现在他写了一篇文章,揭示了所有技术",
+   "lat": "partial: MT 49 ms"
+  },
+  {
+   "t": 22531.5,
+   "kind": "partial",
+   "zh": "但大多数人都会接受,现在他写了一篇文章,揭示了他",
+   "lat": "partial: MT 55 ms"
+  },
+  {
+   "t": 23311.5,
+   "kind": "final",
+   "zh": "大多数人都会这样。现在，他写了一篇文章，其中详细介绍了他用来进入该领域的所有技巧。",
+   "lat": "final 501 ms after pause (ASR 228 · MT 273)"
+  },
+  {
+   "t": 23480,
+   "kind": "partial",
+   "zh": "",
+   "lat": ""
+  },
+  {
+   "t": 23944.89999985695,
+   "kind": "partial",
+   "zh": "疯狂",
+   "lat": "partial: MT 19 ms"
+  },
+  {
+   "t": 24105.39999985695,
+   "kind": "partial",
+   "zh": "疯狂设计",
+   "lat": "partial: MT 15 ms"
+  },
+  {
+   "t": 25390.599999904633,
+   "kind": "partial",
+   "zh": "疯狂设计背后的主要理念",
+   "lat": "partial: MT 28 ms"
+  },
+  {
+   "t": 25717.89999985695,
+   "kind": "partial",
+   "zh": "他们背后的主要",
+   "lat": "partial: MT 34 ms"
+  },
+  {
+   "t": 26038.299999952316,
+   "kind": "partial",
+   "zh": "他们背后的主要设计理念是",
+   "lat": "partial: MT 31 ms"
+  },
+  {
+   "t": 26352.699999809265,
+   "kind": "partial",
+   "zh": "他们背后的主要理念是,",
+   "lat": "partial: MT 37 ms"
+  },
+  {
+   "t": 26680.5,
+   "kind": "partial",
+   "zh": "疯狂的设计背后的主要理念就是你",
+   "lat": "partial: MT 45 ms"
+  },
+  {
+   "t": 28083.599999904633,
+   "kind": "partial",
+   "zh": "",
+   "lat": ""
+  },
+  {
+   "t": 28352,
+   "kind": "final",
+   "zh": "疯狂的设计。其背后的核心思想就是：那些你以为最重要的东西，实际上恰恰就是……",
+   "lat": "final 438 ms after pause (ASR 184 · MT 254)"
+  },
+  {
+   "t": 28435.199999809265,
+   "kind": "partial",
+   "zh": "确切地说",
+   "lat": "partial: MT 22 ms"
+  },
+  {
+   "t": 29225.099999904633,
+   "kind": "partial",
+   "zh": "确切地说,他说的",
+   "lat": "partial: MT 28 ms"
+  },
+  {
+   "t": 29869.099999904633,
+   "kind": "partial",
+   "zh": "确切地说,他说什么并不重要",
+   "lat": "partial: MT 33 ms"
+  },
+  {
+   "t": 30378.099999904633,
+   "kind": "partial",
+   "zh": "确切地说,他所说的",
+   "lat": "partial: MT 46 ms"
+  },
+  {
+   "t": 30555.799999952316,
+   "kind": "partial",
+   "zh": "确切地说,他所说的并不重要",
+   "lat": "partial: MT 60 ms"
+  },
+  {
+   "t": 31945.5,
+   "kind": "partial",
+   "zh": "确切地说,他所说的,",
+   "lat": "partial: MT 123 ms"
+  },
+  {
+   "t": 32177.89999985695,
+   "kind": "partial",
+   "zh": "确切地说,他所说的究竟是什么,真正让设计变得好得无物",
+   "lat": "partial: MT 83 ms"
+  },
+  {
+   "t": 33754.799999952316,
+   "kind": "final",
+   "zh": "他所说的话并不重要。真正让设计变得好的，是那种有组织的、有逻辑的结构。",
+   "lat": "final 688 ms after pause (ASR 334 · MT 354)"
+  }
+ ]
+}

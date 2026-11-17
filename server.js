@@ -257,17 +257,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 // --- WebSocket ---------------------------------------------------------------
+// One server for both paths: two WebSocketServers on one http server would 400 each other's upgrades.
 const wss = new WebSocketServer({
   server,
-  path: '/ws',
   verifyClient: (info, cb) => {
-    if (!APP_TOKEN) return cb(true);
-    let ok = false;
-    try { ok = new URL(info.req.url, 'http://localhost').searchParams.get('token') === APP_TOKEN; } catch {}
-    cb(ok, 401, 'unauthorized');
+    let u; try { u = new URL(info.req.url, 'http://localhost'); } catch { return cb(false, 400); }
+    if (u.pathname !== '/ws' && u.pathname !== '/live') return cb(false, 404);
+    cb(!APP_TOKEN || u.searchParams.get('token') === APP_TOKEN, 401, 'unauthorized');
   },
 });
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  if (req.url.startsWith('/live')) return live.connect(ws);
   const send = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
   let busy = false, pending = null; // ponytail: 1-slot queue; newer segment replaces an unprocessed one (drop backlog, never drift)
 
@@ -298,4 +298,5 @@ wss.on('connection', (ws) => {
   ws.on('close', () => { pending = null; });
 });
 
-server.listen(PORT, () => console.log(`http://localhost:${PORT}  (ASR ${ASR_URL}, MT ${MT_URL}, ${SOURCE} -> ${TARGET})`));
+const live = require('./live')({ mtUrl: MT_URL });
+server.listen(PORT, () =>console.log(`http://localhost:${PORT}  (ASR ${ASR_URL}, MT ${MT_URL}, ${SOURCE} -> ${TARGET})`));
