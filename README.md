@@ -1,22 +1,123 @@
 # livecaption
 
-Live translated captions POC: mic → 16 kHz PCM16 → energy VAD (in the browser) → WAV per utterance → `POST /api/segment` → whisper.cpp (CPU) → Hy-MT2 1.8B via llama.cpp (Vulkan) → captions in the browser.
+> 🎤 **You speak → 💬 translated subtitles in another language appear on screen in about a second, all running on one home PC.**
 
-Node + one dependency (`ws`). No build step.
+Any language pair whisper and Hy-MT2 support. The faster two-stage mode (`/live`) is English → Chinese only for now. A proof of concept, not a product. Tested on a GTX 1060 6GB, i7-7700K and 16 GB RAM.
 
-## Run (Windows)
+## State of the POC (2026-11-17)
 
-```powershell
-.\setup.ps1   # downloads whisper.cpp b5454 + ggml-base.bin if missing, npm install, checks ..\bench
-.\start.ps1   # whisper-server :8081, llama-server :8099, node :3000; Ctrl+C stops all
-.\start.ps1 -SourceLang es -TargetLang "Simplified Chinese"   # fixed pair; keeps whisper from spending an extra pass on language detection
+There are two pipelines in one Node server:
+
+| | `/` (first version) | `/live.html` (current, English → Chinese only) |
+|---|---|---|
+| How it works | Browser VAD cuts utterances → whisper base (CPU) → Hy-MT2 1.8B (GPU) | Streams 80 ms audio frames. A fast guess appears right away, then a better final replaces it |
+| Languages | Any whisper can hear → any Hy-MT2 target (set with `start.ps1`) | English → Simplified Chinese |
+| Delay you see | ~0.7–0.8 s after the 0.7 s end-of-speech pause | Grey Chinese partial ~0.4–0.5 s after a word is spoken; white final ~0.55 s after a pause |
+| Proof | Recordings in `verify/media/` (EN→DE, ES→ZH) | `live.test.js`, `eval.js` and a screenshot in `verify/media/` |
+
+**Works:**
+- Live mic captions in the browser.
+- Two-stage EN→ZH: the translation work behind a partial is 31 ms p50 / 58 ms p90, which meets the 100–150 ms target.
+- Token auth on every route.
+- A repeatable quality score (`eval.js`).
+- Cloudflare Worker front end, tested locally against Node.
+
+**Not done or not proven:**
+- The `workersai` mode has never run, because there is no Cloudflare account yet.
+- Nothing is deployed.
+- `/live` is English → Chinese only.
+- Built for one viewer: decoding runs on Node's main thread.
+- The CPU does everything except Hy-MT2. A busy CPU (for example a compile running at the same time) pushes finals to 2–10 s.
+- No speaker separation, no noise handling beyond the models themselves.
+- Scored on one test set of read-aloud speech. Live, spontaneous speech is untested beyond one 30 s YouTube clip.
+
+### How a caption moves through `/live`
+
+Each segment of speech goes through these states (`live.js`). The fast path and the final path run at the same time: while one segment is being finalized, the next one is already showing partials.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Listening
+    Listening --> Partial: streaming ASR hears a word<br/>(80 ms frames, CPU)
+    Partial --> Partial: English changes → Bergamot<br/>→ grey Chinese (~31 ms)
+    Partial --> Endpoint: pause ≥ 0.5 s, or 5 s non-stop,<br/>or mic stopped
+    Endpoint --> Listening: next segment starts right away
+    Endpoint --> Finalizing: segment audio queued (one at a time, in order)
+    state Finalizing {
+        [*] --> Parakeet: whole segment audio<br/>(~190 ms, CPU)
+        Parakeet --> HyMT2: better English
+        HyMT2 --> [*]: ~390 ms, GPU
+        HyMT2 --> BergamotFallback: Hy-MT2 server down
+        BergamotFallback --> [*]
+    }
+    Finalizing --> Final: white Chinese line replaces the grey one<br/>(~0.55 s after the pause)
+    Final --> [*]
 ```
 
-Open http://localhost:3000 and click **Start mic**.
+### Progress so far
 
-`setup.ps1` / `start.ps1` expect `llama-server.exe` and `Hy-MT2-Q4.gguf` in `..\bench`. Set `VENDOR_BENCH_DIR` to point elsewhere.
+1. **Latency budget.** Hy-MT2 1.8B Q4 on the GTX 1060 (Vulkan) translates a sentence in ~150–400 ms. A 300 ms total budget is not reachable with whisper first, so the budget was relaxed to ~1 s for captions.
+2. **First POC (`/`).** Browser VAD → whisper base → Hy-MT2. About 0.75 s per sentence after the pause. Translated text streams token by token. Pinning the source language saves ~220 ms of ASR.
+3. **Benchmark on a YouTube clip (30 s).** Tested many ASR and MT options against the 100–150 ms goal. No single model gets there, so the answer is two stages:
+   - Fast and rough: streaming NeMo FastConformer CTC + Bergamot (Firefox's offline translation model).
+   - Slow and good: Parakeet 110M on each finished segment + Hy-MT2.
+4. **`/live` built on that.** Partials only show text that two translations in a row agree on, which cut visible rewrites from 103 to 21 in 30 s.
+5. **Eval harness (`eval.js`)**, results below. Main finding: translation is not the weak spot; speech recognition errors and segment cuts are.
 
-Env (server.js): `PORT=3000`, `ASR_URL=http://127.0.0.1:8081`, `MT_URL=http://127.0.0.1:8099`, `TARGET_LANG=German`, `SOURCE_LANG=auto`.
+## Set it up locally (Windows)
+
+**You need:**
+- Windows 10/11
+- [Node.js](https://nodejs.org) 22 or newer (tested on 24.22)
+- [Git for Windows](https://git-scm.com/download/win), for its `tar` + `bzip2`
+- A GPU with a Vulkan driver and ~1.5 GB free VRAM. Any recent NVIDIA, AMD or Intel driver works.
+- ~2 GB of disk, or ~2.3 GB with the eval data
+
+**1. Get llama.cpp and the Hy-MT2 model.** Put both in a `bench` folder next to this repo, or set `VENDOR_BENCH_DIR` to another folder.
+
+```powershell
+cd ..                     # the folder that contains livecaption\
+mkdir bench; cd bench
+# llama.cpp, Vulkan build (b12428 is the tested one; newer should work)
+curl.exe -LO https://github.com/ggml-org/llama.cpp/releases/download/b12428/llama-b12428-bin-win-vulkan-x64.zip
+tar -xf llama-b12428-bin-win-vulkan-x64.zip
+# Hy-MT2 1.8B, 4-bit (1.1 GB). The scripts expect this exact file name
+curl.exe -L -o Hy-MT2-Q4.gguf https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf
+cd ..\livecaption
+```
+
+**2. Fetch everything else and install.**
+
+```powershell
+.\setup.ps1
+```
+
+`setup.ps1`:
+- Downloads whisper.cpp and whisper base.
+- Downloads the three `/live` models (~300 MB). Every file is checked against a pinned sha256.
+- Runs `npm install`.
+- Fails with a clear message if anything is missing.
+
+**3. Run.**
+
+```powershell
+.\start.ps1                                                   # whisper :8081, llama-server :8099, Node :3000; Ctrl+C stops all
+.\start.ps1 -SourceLang es -TargetLang "Simplified Chinese"   # fixed pair for `/`; skips whisper's language detection
+```
+
+- **http://localhost:3000/live.html**: two-stage English → Chinese. Click Start and speak English.
+- **http://localhost:3000**: the first version, any language pair.
+
+**4. Check it works without a mic.**
+
+```powershell
+node live.test.js some-16khz-mono.wav ws://127.0.0.1:3000/live   # prints captions + latency, fails if none arrive
+node eval.js n=30                                                 # quick quality score (first run downloads 171 MB)
+```
+
+Before exposing the box through a tunnel, set `$env:APP_TOKEN` to a long random string. Once it is set, every route requires it; open the page with `?token=...`.
+
+Env (server.js): `PORT=3000`, `ASR_URL=http://127.0.0.1:8081`, `MT_URL=http://127.0.0.1:8099`, `TARGET_LANG=German`, `SOURCE_LANG=auto`, `APP_TOKEN`.
 
 ## Live two-stage captions, English → Chinese (`/live`)
 
@@ -72,6 +173,22 @@ Every run prints one row per approach and appends them to `eval-results.jsonl`, 
 | `ms p50/p90` | Compute per segment (fast: MT only; final: ASR + MT) | lower |
 | `segs/sentence` | How many pieces the endpointer cut each sentence into | — |
 
+### Results (2026-11-17, FLEURS dev, 150 sentences, pause 0.5 s, Hy-MT2-1.8B Q4, audio peak-normalized)
+
+| approach | max segment 5 s (current `/live` default): chrF | WER% | ms p50 / p90 | segs | max segment 10 s: chrF | WER% | ms p50 / p90 | segs |
+|---|---|---|---|---|---|---|---|---|
+| `fast` (grey partial) | 17.9 | 24.8 | 35 / 55 | 1.97 | 20.4 | 19.5 | 55 / 92 | 1.21 |
+| `final` (white line) | 26.8 | 16.3 | 423 / 566 | 1.97 | 29.2 | 13.3 | 582 / 879 | 1.21 |
+| `sentence` (best case) | 30.7 | 9.2 | 686 / 969 | 1 | 30.7 | 9.2 | 620 / 958 | 1 |
+| `mt:final` (Hy-MT2 on human English) | 34.9 | – | 383 / 548 | 1 | 34.9 | – | 319 / 480 | 1 |
+| `mt:bergamot` (on human English) | 33.9 | – | 62 / 109 | 1 | 33.9 | – | 62 / 104 | 1 |
+
+What this says:
+- **Speech recognition is the weak link, not translation.** With perfect English, Bergamot (33.9) is nearly as good as Hy-MT2 (34.9) at 1/6 the time. Everything below ~34 is lost to ASR errors and segment cuts.
+- **A 10 s cap is better than 5 s.** Fewer mid-sentence cuts (1.2 vs 2.0 per sentence) bring `final` close to the whole-sentence ceiling (29.2 vs 30.7) and drop WER from 16.3% to 13.3%. The cost: ~160 ms more work per final, and in non-stop speech the white line can take up to 10 s to arrive. `/live` still defaults to 5 s; this is the next knob to change.
+- **The grey partial is rough on purpose** (~1 English word in 5 wrong). The final fixes it.
+- **The volume normalization matters.** Without it, 13 quiet clips produced no text at all and the final's WER read 35.7%.
+
 How to read it:
 - **Compare rows, not absolute numbers.** chrF of 30 vs. 33 on Chinese is a real gap; ±1 is noise at 150 sentences.
 - `sentence` minus `final` is what segmentation costs you. `mt:final` minus `sentence` is what ASR errors cost you.
@@ -89,8 +206,8 @@ This runs the server-side VAD → ASR → MT path (same VAD as the browser and t
 
 ```powershell
 # one segment, WAV in (what the browser sends)
-curl.exe -X POST -H "content-type: audio/wav" --data-binary "@dataone.wav" http://localhost:3000/api/segment
-node vad.test.js   # browser VAD (public/vad.js) == server VAD on data	est.pcm: 2 segments, identical samples
+curl.exe -X POST -H "content-type: audio/wav" --data-binary "@data\one.wav" http://localhost:3000/api/segment
+node vad.test.js   # browser VAD (public/vad.js) == server VAD on data\test.pcm: 2 segments, identical samples
 ```
 
 Node checks `x-app-token` on `/api/segment` and `/selftest`, and `?token=` on `/ws` and `/live`, whenever `APP_TOKEN` is set. Set it before exposing the box through a tunnel; unset, those routes are open.
@@ -147,7 +264,7 @@ Open `https://livecaption.<you>.workers.dev/?token=<APP_TOKEN>` once; the page k
 ### Hybrid: tunnel to your PC
 
 ```powershell
-.start.ps1                                         # Node :3000 + backends
+.\start.ps1                                        # Node :3000 + backends
 cloudflared tunnel --url http://localhost:3000      # prints https://<random>.trycloudflare.com
 ```
 
@@ -156,7 +273,7 @@ Put that URL in `LOCAL_BACKEND_URL` and redeploy. Quick tunnels get a new URL on
 ### Local dev
 
 ```powershell
-# worker.dev.vars (gitignored):  APP_TOKEN=devtoken123
+# worker\.dev.vars (gitignored):  APP_TOKEN=devtoken123
 cd worker; npm run dev:local   # http://localhost:8787, proxies to Node on :3000
 ```
 
