@@ -38,9 +38,11 @@ fs.mkdirSync(outDir, { recursive: true });
   }, b64);
 
   const page = await ctx.newPage();
+  const LANG = process.env.LANG_PICK; // optional: pick a spoken language in the dropdown before starting
   page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
   await page.goto(url, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1000);
+  if (LANG) await page.selectOption('#lang', LANG);
   await page.click('#btn');
   await page.waitForFunction(() => window.__audioStartPerf, null, { timeout: 15000 });
   const dur = await page.evaluate(() => window.__audioDur);
