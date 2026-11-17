@@ -267,7 +267,7 @@ const wss = new WebSocketServer({
   },
 });
 wss.on('connection', (ws, req) => {
-  if (req.url.startsWith('/live')) return live.connect(ws);
+  if (req.url.startsWith('/live')) return live.connect(ws, new URL(req.url, 'http://localhost').searchParams.get('lang') || 'en');
   const send = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
   let busy = false, pending = null; // ponytail: 1-slot queue; newer segment replaces an unprocessed one (drop backlog, never drift)
 
