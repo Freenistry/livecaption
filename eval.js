@@ -1,5 +1,5 @@
 // Scores the EN->ZH caption pipeline on FLEURS dev (Google, CC-BY-4.0): real English speech + human Chinese reference.
-// Usage: node eval.js [n=150] [trail=0.5] [maxlen=5] [mt=http://127.0.0.1:8099] [label=baseline]
+// Usage: node eval.js [n=150] [trail=0.5] [maxlen=10] [mt=http://127.0.0.1:8099] [label=baseline]
 //   node eval.js n=30                      quick run (~1 min)
 //   node eval.js maxlen=8 label=maxlen8    try a different endpoint setting
 //   node eval.js mt=http://127.0.0.1:8199 label=lmt-0.6b   score another llama-server model as the final MT
@@ -11,7 +11,7 @@ const { execFileSync } = require('child_process');
 const { loadModels, hymt } = require('./live');
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.split('=')));
-const N = +(args.n || 150), TRAIL = +(args.trail || 0.5), MAXLEN = +(args.maxlen || 5);
+const N = +(args.n || 150), TRAIL = +(args.trail || 0.5), MAXLEN = +(args.maxlen || 10);
 const MT = args.mt || 'http://127.0.0.1:8099', LABEL = args.label || 'baseline';
 const DIR = path.join(__dirname, 'data', 'fleurs');
 const RATE = 16000;

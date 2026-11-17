@@ -40,7 +40,7 @@ stateDiagram-v2
     [*] --> Listening
     Listening --> Partial: streaming ASR hears a word<br/>(80 ms frames, CPU)
     Partial --> Partial: English changes → Bergamot<br/>→ grey Chinese (~31 ms)
-    Partial --> Endpoint: pause ≥ 0.5 s, or 5 s non-stop,<br/>or mic stopped
+    Partial --> Endpoint: pause ≥ 0.5 s, or 10 s non-stop,<br/>or mic stopped
     Endpoint --> Listening: next segment starts right away
     Endpoint --> Finalizing: segment audio queued (one at a time, in order)
     state Finalizing {
@@ -127,9 +127,9 @@ Open http://localhost:3000/live.html. The page streams 80 ms PCM frames over a W
 |---|---|---|
 | ASR | NeMo streaming FastConformer CTC 80 ms, int8, CPU 2 threads (sherpa-onnx) | Parakeet TDT-CTC 110M int8, CPU, on the whole segment |
 | MT | Bergamot en→zh-Hans 2.2 (Firefox's model), WASM in a worker thread | Hy-MT2 via llama-server :8099 (falls back to Bergamot if it is down) |
-| When | every time the English partial changes | after a 0.5 s pause, or every 5 s of continuous speech |
+| When | every time the English partial changes | after a 0.5 s pause, or every 10 s of continuous speech |
 
-Measured with `node live.test.js <clip.wav> ws://127.0.0.1:3000/live` on the first 30 s of a YouTube talk (one English speaker), warm, light background load:
+Measured (with the earlier 5 s cap) with `node live.test.js <clip.wav> ws://127.0.0.1:3000/live` on the first 30 s of a YouTube talk (one English speaker), warm, light background load:
 
 | | p50 | p90 / max |
 |---|---|---|
@@ -175,7 +175,7 @@ Every run prints one row per approach and appends them to `eval-results.jsonl`, 
 
 ### Results (2026-11-17, FLEURS dev, 150 sentences, pause 0.5 s, Hy-MT2-1.8B Q4, audio peak-normalized)
 
-| approach | max segment 5 s (current `/live` default): chrF | WER% | ms p50 / p90 | segs | max segment 10 s: chrF | WER% | ms p50 / p90 | segs |
+| approach | max segment 5 s: chrF | WER% | ms p50 / p90 | segs | max segment 10 s (current `/live` default): chrF | WER% | ms p50 / p90 | segs |
 |---|---|---|---|---|---|---|---|---|
 | `fast` (grey partial) | 17.9 | 24.8 | 35 / 55 | 1.97 | 20.4 | 19.5 | 55 / 92 | 1.21 |
 | `final` (white line) | 26.8 | 16.3 | 423 / 566 | 1.97 | 29.2 | 13.3 | 582 / 879 | 1.21 |
@@ -185,7 +185,7 @@ Every run prints one row per approach and appends them to `eval-results.jsonl`, 
 
 What this says:
 - **Speech recognition is the weak link, not translation.** With perfect English, Bergamot (33.9) is nearly as good as Hy-MT2 (34.9) at 1/6 the time. Everything below ~34 is lost to ASR errors and segment cuts.
-- **A 10 s cap is better than 5 s.** Fewer mid-sentence cuts (1.2 vs 2.0 per sentence) bring `final` close to the whole-sentence ceiling (29.2 vs 30.7) and drop WER from 16.3% to 13.3%. The cost: ~160 ms more work per final, and in non-stop speech the white line can take up to 10 s to arrive. `/live` still defaults to 5 s; this is the next knob to change.
+- **A 10 s cap is better than 5 s.** Fewer mid-sentence cuts (1.2 vs 2.0 per sentence) bring `final` close to the whole-sentence ceiling (29.2 vs 30.7) and drop WER from 16.3% to 13.3%. The cost: ~160 ms more work per final, and in non-stop speech the white line can take up to 10 s to arrive (the grey partials cover the gap). `/live` now uses 10 s.
 - **The grey partial is rough on purpose** (~1 English word in 5 wrong). The final fixes it.
 - **The volume normalization matters.** Without it, 13 quiet clips produced no text at all and the final's WER read 35.7%.
 

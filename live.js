@@ -7,11 +7,11 @@ const fs = require('fs');
 
 const MODELS = path.join(__dirname, 'models');
 const RATE = 16000;
-const MAX_SEG_S = 30; // hard cap on buffered audio per segment (the endpointer cuts at 5 s; this only guards a stuck stream)
+const MAX_SEG_S = 30; // hard cap on buffered audio per segment (the endpointer cuts at 10 s; this only guards a stuck stream)
 const MAX_MSG = 64 * 1024; // one binary frame; the page sends 80 ms = 2560 bytes
 
 // Shared by /live and eval.js so both run the exact same models and endpoint rules. Throws if a model is missing.
-function loadModels({ trail = 0.5, maxlen = 5 } = {}) {
+function loadModels({ trail = 0.5, maxlen = 10 } = {}) {
   const so = require('sherpa-onnx-node');
   const m = (dir, f) => { const p = path.join(MODELS, dir, f); if (!fs.existsSync(p)) throw new Error(`missing ${p} (run setup.ps1)`); return p; };
   const rec = new so.OnlineRecognizer({
@@ -20,7 +20,7 @@ function loadModels({ trail = 0.5, maxlen = 5 } = {}) {
     enableEndpoint: 1,
     rule1MinTrailingSilence: 2.4,   // silence-only segment
     rule2MinTrailingSilence: trail, // pause after speech: 0.3 split clauses and hurt Hy-MT2, 0.8 adds ~150 ms
-    rule3MinUtteranceLength: maxlen, // force a final every maxlen s of continuous speech
+    rule3MinUtteranceLength: maxlen, // force a final every maxlen s of continuous speech; eval.js: 10 s beat 5 s (chrF 29.2 vs 26.8)
   });
   const off = new so.OfflineRecognizer({
     featConfig: { sampleRate: RATE, featureDim: 80 },
