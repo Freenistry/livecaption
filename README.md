@@ -12,7 +12,7 @@ There are two pipelines in one Node server:
 |---|---|---|
 | How it works | Browser VAD cuts utterances → whisper base (CPU) → Hy-MT2 1.8B (GPU) | Streams 80 ms audio frames. A fast guess appears right away, then a better final replaces it |
 | Languages | Any whisper can hear → any Hy-MT2 target (set with `start.ps1`) | English → Simplified Chinese |
-| Delay you see | ~0.7–0.8 s after the 0.7 s end-of-speech pause | Grey Chinese partial ~0.4–0.5 s after a word is spoken; white final ~0.55 s after a pause |
+| Delay you see | ~0.7–0.8 s after the 0.7 s end-of-speech pause | Grey Chinese partial ~0.4–0.5 s after a word is spoken; white final ~0.55–1 s after a pause or the 10 s cap |
 | Proof | Recordings in `verify/media/` (EN→DE, ES→ZH) | `live.test.js`, `eval.js` and a screenshot in `verify/media/` |
 
 **Works:**
@@ -50,7 +50,7 @@ stateDiagram-v2
         HyMT2 --> BergamotFallback: Hy-MT2 server down
         BergamotFallback --> [*]
     }
-    Finalizing --> Final: white Chinese line replaces the grey one<br/>(~0.55 s after the pause)
+    Finalizing --> Final: white Chinese line replaces the grey one<br/>(~0.55–1 s after the cut)
     Final --> [*]
 ```
 
@@ -129,14 +129,16 @@ Open http://localhost:3000/live.html. The page streams 80 ms PCM frames over a W
 | MT | Bergamot en→zh-Hans 2.2 (Firefox's model), WASM in a worker thread | Hy-MT2 via llama-server :8099 (falls back to Bergamot if it is down) |
 | When | every time the English partial changes | after a 0.5 s pause, or every 10 s of continuous speech |
 
-Measured (with the earlier 5 s cap) with `node live.test.js <clip.wav> ws://127.0.0.1:3000/live` on the first 30 s of a YouTube talk (one English speaker), warm, light background load:
+Measured with `node live.test.js <clip.wav> ws://127.0.0.1:3000/live` on the first 30 s of a YouTube talk (one English speaker, almost no pauses), warm, light background load. Median of 3 runs per setting, back to back on 2026-11-17.
 
-| | p50 | p90 / max |
+| | 10 s cap (current) | 5 s cap |
 |---|---|---|
-| Chinese partial: Bergamot time per update | 31 ms | 58 ms |
-| Chinese partial: English change → Chinese sent | 32 ms | 59 ms |
-| Final: pause detected → Chinese final sent | 553 ms | 755 ms max |
-| Final: Parakeet / Hy-MT2 | 190 ms / 390 ms | |
+| Chinese partial: Bergamot time per update, p50 / p90 | 51 / 97 ms | 32 / 56 ms |
+| Final: cut → Chinese final sent, p50 / max | 950 / 1235 ms | 479 / 519 ms |
+| Final: Parakeet / Hy-MT2, p50 | 410 / 490 ms | 182 / 301 ms |
+| White finals in 30 s | 3 (all forced by the cap) | 6 |
+
+This speaker never paused for 0.5 s, so every final came from the cap. With 10 s, the white line arrives every ~10 s and takes ~1 s to compute, because both models get twice the audio and text. Partials also cost more, because the English being re-translated grows longer. With natural pauses, segments are shorter and the numbers move toward the 5 s column. FLEURS still scores 10 s higher; see the eval below.
 
 The English partial itself is ~1 ms of work per 80 ms chunk (45 ms worst). A word still shows up about 0.35–0.45 s after it is spoken, because the streaming model has to hear past it; no model tested gets that under ~0.3 s.
 

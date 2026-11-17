@@ -37,7 +37,7 @@ async function hymt(mtUrl, text) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       messages: [{ role: 'user', content: `Translate the following segment into Simplified Chinese, without additional explanation.\n\n${text}` }],
-      max_tokens: 128, temperature: 0, stop: ['\n'],
+      max_tokens: 384, temperature: 0, stop: ['\n'],
     }),
   });
   if (!r.ok) throw new Error(`MT HTTP ${r.status}`);
