@@ -9,7 +9,7 @@ const RECORDS = 'https://firefox.settings.services.mozilla.com/v1/buckets/main/c
 const CDN = 'https://firefox-settings-attachments.cdn.mozilla.net/';
 const args = process.argv.slice(2);
 const to = (args.find((a) => a.startsWith('--to=')) || '--to=zh-Hans').slice(5);
-const srcs = args.filter((a) => !a.startsWith('--'));
+const srcs = args.filter((a) => !a.startsWith('--')).flatMap((a) => a.split(',')).filter(Boolean); // PowerShell passes -Langs es,ja as one "es,ja"
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 // numeric version compare, stable releases only ("2.1" > "2.0", "2.0a2" skipped)
 const ver = (v) => (/^\d+(\.\d+)*$/.test(v) ? v.split('.').map(Number) : null);

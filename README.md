@@ -2,22 +2,23 @@
 
 > 🎤 **You speak → 💬 translated subtitles in another language appear on screen in about a second, all running on one home PC.**
 
-Any language pair whisper and Hy-MT2 support. The faster two-stage mode (`/live`) is English → Chinese only for now. A proof of concept, not a product. Tested on a GTX 1060 6GB, i7-7700K and 16 GB RAM.
+Any language pair whisper and Hy-MT2 support. The faster two-stage mode (`/live`) hears 17 languages and captions them in Chinese. A proof of concept, not a product. Tested on a GTX 1060 6GB, i7-7700K and 16 GB RAM.
 
-## State of the POC (2026-11-17)
+## State of the POC (2026-11-18)
 
 There are two pipelines in one Node server:
 
-| | `/` (first version) | `/live.html` (current, English → Chinese only) |
+| | `/` (first version) | `/live.html` (current, 17 spoken languages → Chinese) |
 |---|---|---|
 | How it works | Browser VAD cuts utterances → whisper base (CPU) → Hy-MT2 1.8B (GPU) | Streams 80 ms audio frames. A fast guess appears right away, then a better final replaces it |
-| Languages | Any whisper can hear → any Hy-MT2 target (set with `start.ps1`) | English → Simplified Chinese |
-| Delay you see | ~0.7–0.8 s after the 0.7 s end-of-speech pause | Grey Chinese partial ~0.4–0.5 s after a word is spoken; white final ~0.55–1 s after a pause or the 10 s cap |
+| Languages | Any whisper can hear → any Hy-MT2 target (set with `start.ps1`) | Picked on the page: en, es, fr, de, it, pt, nl, tr, ru, ar, hi, ja, ko, vi, uk, pl, cs → Simplified Chinese |
+| Delay you see | ~0.7–0.8 s after the 0.7 s end-of-speech pause | Grey Chinese ~0.4–0.5 s after a word (English), ~0.65–0.8 s after speech starts (es/de, GPU); white final ~0.2–1 s after a pause or the 10 s cap |
 | Proof | Recordings in `verify/media/` (EN→DE, ES→ZH) | `live.test.js`, `eval.js` and a screenshot in `verify/media/` |
 
 **Works:**
 - Live mic captions in the browser.
 - Two-stage EN→ZH: the translation work behind a partial is 31 ms p50 / 58 ms p90, which meets the 100–150 ms target.
+- 16 more spoken languages on `/live` (see "Other spoken languages" below), optionally with the speech model on the GPU.
 - Token auth on every route.
 - A repeatable quality score (`eval.js`).
 - Cloudflare Worker front end, tested locally against Node.
@@ -25,8 +26,10 @@ There are two pipelines in one Node server:
 **Not done or not proven:**
 - The `workersai` mode has never run, because there is no Cloudflare account yet.
 - Nothing is deployed.
-- `/live` is English → Chinese only.
-- Built for one viewer: decoding runs on Node's main thread.
+- `/live` only translates *into* Chinese. Other targets need another Bergamot `en→X` model and a different Hy-MT2 prompt.
+- Japanese is slow to show up (~2.2 s before any text), and live error rates on joined clips are noisy (one German run 12.5%, another 47.9%).
+- English decoding runs on Node's main thread; built for a few viewers.
+- GPU mode fills the 6 GB card (5.8 GB with Hy-MT2) and takes ~1 min to start. Both models share the GPU, so about 1 white caption in 9 waits 1.5–5.5 s instead of ~0.2 s.
 - The CPU does everything except Hy-MT2. A busy CPU (for example a compile running at the same time) pushes finals to 2–10 s.
 - No speaker separation, no noise handling beyond the models themselves.
 - Scored on one test set of read-aloud speech. Live, spontaneous speech is untested beyond one 30 s YouTube clip.
@@ -54,6 +57,8 @@ stateDiagram-v2
     Final --> [*]
 ```
 
+This is the English path. For other spoken languages the streaming model is Nemotron (in its own process, CPU or GPU), the grey translation chains two Bergamot models through English, and Finalizing skips Parakeet: Hy-MT2 gets the streaming text directly.
+
 ### Progress so far
 
 1. **Latency budget.** Hy-MT2 1.8B Q4 on the GTX 1060 (Vulkan) translates a sentence in ~150–400 ms. A 300 ms total budget is not reachable with whisper first, so the budget was relaxed to ~1 s for captions.
@@ -63,6 +68,8 @@ stateDiagram-v2
    - Slow and good: Parakeet 110M on each finished segment + Hy-MT2.
 4. **`/live` built on that.** Partials only show text that two translations in a row agree on, which cut visible rewrites from 103 to 21 in 30 s.
 5. **Eval harness (`eval.js`)**, results below. Main finding: translation is not the weak spot; speech recognition errors and segment cuts are.
+6. **10 s segment cap** instead of 5 s (better chrF and WER on the eval).
+7. **Other spoken languages.** Nemotron 3.5 ASR streaming (one model, 32 languages) + Bergamot through English for the grey line, Hy-MT2 for the white line. Runs on the CPU (560 ms model) or the GPU (80 ms model, ~35% faster grey captions).
 
 ## Set it up locally (Windows)
 
@@ -71,7 +78,8 @@ stateDiagram-v2
 - [Node.js](https://nodejs.org) 22 or newer (tested on 24.22)
 - [Git for Windows](https://git-scm.com/download/win), for its `tar` + `bzip2`
 - A GPU with a Vulkan driver and ~1.5 GB free VRAM. Any recent NVIDIA, AMD or Intel driver works.
-- ~2 GB of disk, or ~2.3 GB with the eval data
+- ~2 GB of disk (~2.3 GB with the eval data). Other languages add ~0.7 GB plus ~40 MB per language; GPU mode adds ~5 GB.
+- GPU mode only: an NVIDIA card with ~4 GB free VRAM next to Hy-MT2 (tested: GTX 1060 6GB, driver 536)
 
 **1. Get llama.cpp and the Hy-MT2 model.** Put both in a `bench` folder next to this repo, or set `VENDOR_BENCH_DIR` to another folder.
 
@@ -89,12 +97,16 @@ cd ..\livecaption
 **2. Fetch everything else and install.**
 
 ```powershell
-.\setup.ps1
+.\setup.ps1                      # English /live + the first version
+.\setup.ps1 -Langs es,de,ja      # also these spoken languages on /live
+.\setup.ps1 -Langs es,de -Gpu    # ...with the speech model on the GPU (NVIDIA, ~5 GB download)
 ```
 
 `setup.ps1`:
 - Downloads whisper.cpp and whisper base.
-- Downloads the three `/live` models (~300 MB). Every file is checked against a pinned sha256.
+- Downloads the three English `/live` models (~300 MB). Every file is checked against a pinned sha256.
+- With `-Langs`: the multilingual speech model (650 MB) and one Bergamot model per language (`get-models.js`, checked against Mozilla's published hashes).
+- With `-Gpu`: the full-size 80 ms speech model (2.5 GB), sherpa-onnx's CUDA build, and CUDA 12.8 + cuDNN 9 DLLs from NVIDIA's pip packages (no CUDA toolkit install).
 - Runs `npm install`.
 - Fails with a clear message if anything is missing.
 
@@ -103,21 +115,23 @@ cd ..\livecaption
 ```powershell
 .\start.ps1                                                   # whisper :8081, llama-server :8099, Node :3000; Ctrl+C stops all
 .\start.ps1 -SourceLang es -TargetLang "Simplified Chinese"   # fixed pair for `/`; skips whisper's language detection
+.\start.ps1 -Gpu                                              # non-English /live speech model on the GPU
 ```
 
-- **http://localhost:3000/live.html**: two-stage English → Chinese. Click Start and speak English.
+- **http://localhost:3000/live.html**: two-stage captions into Chinese. Pick the spoken language, click Start, speak.
 - **http://localhost:3000**: the first version, any language pair.
 
 **4. Check it works without a mic.**
 
 ```powershell
-node live.test.js some-16khz-mono.wav ws://127.0.0.1:3000/live   # prints captions + latency, fails if none arrive
+node live.test.js some-16khz-mono.wav ws://127.0.0.1:3000/live           # prints captions + latency, fails if none arrive
+node live.test.js spanish.wav "ws://127.0.0.1:3000/live?lang=es"         # another spoken language
 node eval.js n=30                                                 # quick quality score (first run downloads 171 MB)
 ```
 
 Before exposing the box through a tunnel, set `$env:APP_TOKEN` to a long random string. Once it is set, every route requires it; open the page with `?token=...`.
 
-Env (server.js): `PORT=3000`, `ASR_URL=http://127.0.0.1:8081`, `MT_URL=http://127.0.0.1:8099`, `TARGET_LANG=German`, `SOURCE_LANG=auto`, `APP_TOKEN`.
+Env (server.js): `PORT=3000`, `ASR_URL=http://127.0.0.1:8081`, `MT_URL=http://127.0.0.1:8099`, `TARGET_LANG=German`, `SOURCE_LANG=auto`, `APP_TOKEN`, `ASR_GPU=1` (set by `start.ps1 -Gpu`).
 
 ## Live two-stage captions, English → Chinese (`/live`)
 
@@ -147,6 +161,40 @@ Partials only show the prefix two consecutive translations agree on and do not s
 Everything on the fast path is CPU. When another program saturated the CPU (a Rust build), finals slipped to 2–10 s. Keep the box otherwise idle.
 
 `setup.ps1` downloads the three models (~300 MB, every file sha256-pinned). The Parakeet tarball needs Git for Windows' `tar` + `bzip2`: Windows' own `tar.exe` hangs on it.
+
+## Other spoken languages → Chinese (`/live?lang=xx`)
+
+Pick the language on the page (or add `?lang=es` to the WebSocket URL). English keeps the path above; every other language uses:
+
+| | Grey (fast) | White (final) |
+|---|---|---|
+| ASR | Nemotron 3.5 ASR streaming 0.6B: one model for 32 languages, language pinned per stream | the same streaming text (no second ASR pass) |
+| MT | Bergamot X→en→zh (two Firefox models chained; Firefox only ships pairs with English) | Hy-MT2 (translates directly) |
+| Runs on | CPU: int8 560 ms model, ~0.5× real time. GPU (`-Gpu`): fp32 80 ms model, ~40 ms per 80 ms chunk | GPU (llama-server) |
+
+Measured 2026-11-18 on FLEURS dev sentences joined into 33–42 s clips with 0.3 s gaps (`lab/make-clip.js`), warm, with other programs using ~20–30% CPU:
+
+| | es | de | ja |
+|---|---|---|---|
+| Speech starts → grey Chinese, p50, CPU / GPU | 0.94 / 0.65 s | 1.29 / 0.79 s | 2.86 / 2.20 s |
+| White final after the cut, p50 | 0.17–0.18 s | 0.30–0.35 s | 0.23–0.64 s |
+| Grey translation time (two Bergamot steps), p50 | 30–100 ms | 40–90 ms | 50–125 ms |
+| ASR accuracy, 50 single sentences, CPU / GPU (WER; ja: CER) | 7.2 / 7.5% | 8.2 / 7.9% | 17.0 / 16.4% |
+
+- **The GPU changes speed, not accuracy.** It decodes every 80 ms instead of every 560 ms, so text shows up ~0.3 s sooner.
+- **Japanese is slow on both.** The model takes ~2 s before it emits any Japanese.
+- **The white line skips a second ASR pass.** Parakeet 0.6B v3 is ~3 points better on WER, but costs 1.5–2 s per segment on this CPU. So the final is fast, and only as accurate as the grey line's source text.
+- **The grey Chinese is shown as soon as it arrives** and may rewrite itself at most once per second. The English path's "show only what two translations agree on" rule held these captions back 1–1.5 s, because new text arrives in bigger steps.
+- Live clips get cut at pauses inside sentences ("En cuatro años" | "es el quinto CEP…"), which costs accuracy. Error rates on these clips swing a lot between runs; trust the 50-sentence row more.
+
+What broke on the way, so it does not come back:
+- **Resetting the recognizer at each cut lost the words still inside the model** ("es el quinto CEP" vanished). `asr-multi.js` never resets mid-speech; each segment is the text added since the last cut.
+- **One WASM heap holding several Bergamot models aborted** after an evict and reload. `mt-fast.js` runs one worker per model (4 max, least recently used goes first).
+- **The GPU silently fell back to CPU** when Nemotron shared a process with the English models: Windows loads one `onnxruntime.dll` per process. Nemotron runs in its own child process.
+- **CUDA 12.2 DLLs fail** with onnxruntime 1.28 ("procedure could not be found"). 12.8 works on driver 536.
+- **The int8 models are slower on the GPU** (289 ms per decode) than on the CPU (159 ms). The GPU needs the fp32 model.
+
+`lab/` (not in git) holds the scripts behind these numbers: `nemotron-test.js` (accuracy and speed per language), `parakeet-v3-test.js`, `lag.js` (speech start → first caption) and `gpu-probe.js`.
 
 ## Scoring models and approaches (`eval.js`)
 

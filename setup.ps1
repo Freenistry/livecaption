@@ -1,4 +1,8 @@
 # Fetch whisper.cpp binaries + model if missing, check the llama-server/GGUF location.
+# Usage: .\setup.ps1                     English /live + the first version (/)
+#        .\setup.ps1 -Langs es,de,ja     also other spoken languages on /live (Nemotron CPU model + Bergamot pairs)
+#        .\setup.ps1 -Langs es -Gpu      same, with the GPU speech model (NVIDIA, ~5 GB download; run start.ps1 -Gpu)
+param([string[]]$Langs = @(), [switch]$Gpu)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $ProgressPreference = 'SilentlyContinue'  # makes Invoke-WebRequest much faster
@@ -67,4 +71,62 @@ foreach ($f in 'llama-server.exe', 'Hy-MT2-Q4.gguf') {
 }
 
 if (-not (Test-Path (Join-Path $root 'node_modules\ws'))) { Push-Location $root; npm install; Pop-Location }
+
+# Other spoken languages on /live: Nemotron 3.5 ASR streaming (32 languages) + Bergamot X->en per language
+if ($Langs.Count) {
+  $nb = 'https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3'
+  foreach ($f in @(
+      @('encoder.int8.onnx', '012E9321373AF99021415E0B0EB3EC827B4BE3153BE6F30D9B448FE65E896E68'),
+      @('decoder.int8.onnx', '19F9C98FC6D0A2C33A65A43B36FDB2E914C26C0AA9764BE3AEBC502A1E982FB0'),
+      @('joiner.int8.onnx', '4101C7C679A0BC30483794B27A059E34E79232AA2068D78D51231A22C8B0D7CE'),
+      @('tokens.txt', '729CC103155BAFA785F9CD45746CD41CABE97EAB7182FC04D594129587958F8A'))) {
+    Get-Pinned "$nb/$($f[0])" "$m\nemotron-560\$($f[0])" $f[1]
+  }
+  Push-Location $root; node get-models.js @Langs; $code = $LASTEXITCODE; Pop-Location
+  if ($code) { throw 'get-models.js failed' }
+}
+
+# GPU speech model: fp32 80 ms Nemotron + sherpa-onnx's CUDA build + CUDA 12.8 / cuDNN 9 DLLs (from NVIDIA's pip wheels,
+# so no CUDA toolkit install). CUDA 12.2 DLLs fail on onnxruntime 1.28 ("procedure could not be found"); 12.8 works on
+# driver 536 (GTX 1060). The int8 models do not speed up on the GPU; the fp32 one does (~40 ms per 80 ms chunk).
+if ($Gpu) {
+  $nf = 'https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-80ms-2026-06-11/resolve/88535ae65d52ba59d5234be261df60176ab848a3'
+  foreach ($f in @(
+      @('encoder.onnx', '7653346424B84EDB6D4C104B50BA1BE7A055DD4BC0EF0277B773C7F822DADD09'),
+      @('encoder.data', '7584F85DF76BC9AE6FBDFA53AA8D97B07A842525D1C501D536D77FD9E4F57AC7'),
+      @('decoder.onnx', 'F9C59EE6FA130BC2BA349DBCBBA7C74A4A960A98D4196295BA4E8E5D6BDE6B68'),
+      @('joiner.onnx', 'A6BD74C0A31CBDE0DA0368C1E29D171752108C7AD1231630E079A7D97CEEE6F0'),
+      @('tokens.txt', '729CC103155BAFA785F9CD45746CD41CABE97EAB7182FC04D594129587958F8A'))) {
+    Get-Pinned "$nf/$($f[0])" "$m\nemotron-80-fp32\$($f[0])" $f[1]
+  }
+  $cu = Join-Path $root 'vendor\sherpa-cuda'
+  if (-not (Test-Path "$cu\onnxruntime_providers_cuda.dll")) {
+    $gitUsr = Join-Path $env:ProgramFiles 'Git\usr\bin'
+    $tmp = Join-Path $root 'vendor\sherpa-cuda-tmp'
+    $name = 'sherpa-onnx-v2.0.1-cuda-12.x-cudnn-9.x-onnxruntime1.28.2-win-x64-cuda'
+    Get-Pinned "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/$name.tar.bz2" "$tmp\s.tar.bz2" 'CD983FA95431A8A08555B15005E1EFFD0B771F161D30F7F3BD52D518DA48F6B6'
+    $oldPath = $env:PATH; $env:PATH = "$gitUsr;$env:PATH"
+    Push-Location $tmp; try { & "$gitUsr\tar.exe" -xjf s.tar.bz2 "$name/lib" } finally { Pop-Location; $env:PATH = $oldPath }
+    if ($LASTEXITCODE) { throw 'tar failed on the sherpa-onnx CUDA archive' }
+    New-Item -ItemType Directory -Force $cu | Out-Null
+    Move-Item "$tmp\$name\lib\*.dll" $cu -Force
+    Copy-Item (Join-Path $root 'node_modules\sherpa-onnx-win-x64\sherpa-onnx.node') $cu  # same addon, loads the CUDA onnxruntime next to it
+    Remove-Item -Recurse -Force $tmp
+  }
+  $whl = 'https://files.pythonhosted.org/packages'
+  foreach ($w in @(
+      @("$whl/30/a5/a515b7600ad361ea14bfa13fb4d6687abf500adc270f19e89849c0590492/nvidia_cuda_runtime_cu12-12.8.90-py3-none-win_amd64.whl", 'C0C6027F01505BFED6C3B21EC546F69C687689AAD5F1A377554BC6CA4AA993A8', 'cudart64_12.dll'),
+      @("$whl/70/61/7d7b3c70186fb651d0fbd35b01dbfc8e755f69fd58f817f3d0f642df20c3/nvidia_cublas_cu12-12.8.4.1-py3-none-win_amd64.whl", '47E9B82132FA8D2B4944E708049229601448AAAD7E6F296F630F2D1A32DE35AF', 'cublas64_12.dll'),
+      @("$whl/7d/ec/ce1629f1e478bb5ccd208986b5f9e0316a78538dd6ab1d0484f012f8e2a1/nvidia_cufft_cu12-11.3.3.83-py3-none-win_amd64.whl", '7A64A98EF2A7C47F905AAF8931B69A3A43F27C55530C698BB2ED7C75C0B42CB7', 'cufft64_11.dll'),
+      @("$whl/db/67/cf2f75cfa730a78a8ea0fcfb48c776e1a8c1aeef235c91826ac85e05923c/nvidia_cudnn_cu12-9.0.0.312-py3-none-win_amd64.whl", '52043EE7507DFCC1EFF4D2C5C208B8B6531D71B224BC586AEC5C92075B677563', 'cudnn64_9.dll'))) {
+    if (Test-Path "$cu\$($w[2])") { continue }
+    $z = Join-Path $root "vendor\$(Split-Path $w[0] -Leaf).zip"  # a .whl is a zip
+    Get-Pinned $w[0] $z $w[1]
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($z)
+    try { foreach ($e in $zip.Entries | Where-Object { $_.FullName -match '^nvidia/[^/]+/bin/[^/]+\.dll$' }) { [IO.Compression.ZipFileExtensions]::ExtractToFile($e, "$cu\$($e.Name)", $true) } }
+    finally { $zip.Dispose() }
+    Remove-Item $z
+  }
+}
 Write-Host "OK. whisper: $whisperDir\Release  llama: $(Resolve-Path $bench)"
