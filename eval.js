@@ -128,7 +128,8 @@ function streamSegments(rec, audio) {
 }
 const timed = async (fn) => { const t = performance.now(); const out = await fn(); return [out, performance.now() - t]; };
 
-(async () => {
+module.exports = { ensureData, readWav, streamSegments, chrf, chrfStats, words, edits, REV, DIR };
+if (require.main === module) (async () => {
   const items = (await ensureData()).slice(0, N);
   const { rec, off, fast } = loadModels({ trail: TRAIL, maxlen: MAXLEN });
   await fast.ready;

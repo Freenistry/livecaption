@@ -36,12 +36,12 @@ function loadModels({ trail = 0.5, maxlen = 10 } = {}) {
   return { rec, off, fast };
 }
 
-async function hymt(mtUrl, text) { // Hy-MT2 detects the source language itself
+async function hymt(mtUrl, text, target = 'Simplified Chinese') { // Hy-MT2 detects the source language itself
   const r = await fetch(`${mtUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      messages: [{ role: 'user', content: `Translate the following segment into Simplified Chinese, without additional explanation.\n\n${text}` }],
+      messages: [{ role: 'user', content: `Translate the following segment into ${target}, without additional explanation.\n\n${text}` }],
       max_tokens: 384, temperature: 0, stop: ['\n'],
     }),
   });

@@ -26,7 +26,7 @@ There are two pipelines in one Node server:
 **Not done or not proven:**
 - The `workersai` mode has never run, because there is no Cloudflare account yet.
 - Nothing is deployed.
-- `/live` only translates *into* Chinese. Other targets need another Bergamot `en→X` model and a different Hy-MT2 prompt.
+- `/live` only translates *into* Chinese. English → 15 other targets is scored (see "First pilot" below), but there is no target picker yet.
 - Japanese is slow to show up (~2.2 s before any text), and live error rates on joined clips are noisy (one German run 12.5%, another 47.9%).
 - English decoding runs on Node's main thread; built for a few viewers.
 - GPU mode fills the 6 GB card (5.8 GB with Hy-MT2) and takes ~1 min to start. Both models share the GPU, so about 1 white caption in 9 waits 1.5–5.5 s instead of ~0.2 s.
@@ -70,6 +70,7 @@ This is the English path. For other spoken languages the streaming model is Nemo
 5. **Eval harness (`eval.js`)**, results below. Main finding: translation is not the weak spot; speech recognition errors and segment cuts are.
 6. **10 s segment cap** instead of 5 s (better chrF and WER on the eval).
 7. **Other spoken languages.** Nemotron 3.5 ASR streaming (one model, 32 languages) + Bergamot through English for the grey line, Hy-MT2 for the white line. Runs on the CPU (560 ms model) or the GPU (80 ms model, ~35% faster grey captions).
+8. **First pilot scope: English in, 15 targets out (`eval-targets.js`).** All 15 have a fast Bergamot path. On human English, Hy-MT2 never beats Bergamot by more than noise (+0.4 at best), and it is weakest and slowest on the Indic languages.
 
 ## Set it up locally (Windows)
 
@@ -195,6 +196,48 @@ What broke on the way, so it does not come back:
 - **The int8 models are slower on the GPU** (289 ms per decode) than on the CPU (159 ms). The GPU needs the fp32 model.
 
 `lab/` (not in git) holds the scripts behind these numbers: `nemotron-test.js` (accuracy and speed per language), `parakeet-v3-test.js`, `lag.js` (speech start → first caption) and `gpu-probe.js`.
+
+## First pilot: English speech → 15 target languages (`eval-targets.js`)
+
+The pilot input is English. These are the 15 most-spoken languages after English (Ethnologue 2025) that both Bergamot and Hy-MT2 cover. The English speech is recognized once, and only the translation step changes per target.
+
+```powershell
+foreach ($t in 'zh-Hans','hi','es','ar','fr','bn','pt','ru','id','ur','de','ja','mr','vi','te') { node get-models.js --to=$t en }  # ~40 MB each
+node eval-targets.js n=50            # ~70 min with Hy-MT2 on :8099; only=hi,ja for a subset
+```
+
+Results from 2026-11-18. Setup:
+- FLEURS dev, the first 50 English sentences. n is lower when a language's FLEURS set lacks that sentence.
+- chrF against each language's human translation.
+- The 10 s segment cap and 0.5 s pause, the same as `/live`.
+
+| target | n | grey (streaming ASR → Bergamot) | white (Parakeet → Hy-MT2) | Bergamot on human English | Hy-MT2 on human English | grey MT ms p50 / p90 | white MT ms p50 / p90 |
+|---|---|---|---|---|---|---|---|
+| Chinese (zh-Hans) | 50 | 20.8 | 30.5 | 36.0 | 34.9 | 66 / 111 | 342 / 582 |
+| Hindi | 45 | 49.9 | 46.3 | 61.8 | 50.1 | 37 / 71 | 969 / 1806 |
+| Spanish | 50 | 46.9 | 52.8 | 55.8 | 56.2 | 73 / 135 | 515 / 826 |
+| Arabic | 47 | 44.2 | 45.2 | 54.7 | 48.5 | 57 / 129 | 586 / 1085 |
+| French | 45 | 57.6 | 62.1 | 70.4 | 67.2 | 72 / 155 | 527 / 885 |
+| Bengali | 50 | 46.2 | 41.4 | 55.8 | 44.1 | 30 / 53 | 1130 / 1808 |
+| Portuguese | 49 | 56.8 | 62.6 | 72.7 | 67.4 | 59 / 125 | 480 / 833 |
+| Russian | 50 | 48.3 | 50.5 | 57.8 | 56.4 | 75 / 127 | 625 / 1116 |
+| Indonesian | 49 | 54.6 | 58.8 | 70.8 | 61.5 | 26 / 46 | 524 / 891 |
+| Urdu | 49 | 44.2 | 39.2 | 51.2 | 40.8 | 55 / 95 | 847 / 1384 |
+| German | 48 | 50.8 | 57.0 | 63.2 | 62.3 | 57 / 110 | 517 / 870 |
+| Japanese | 45 | 25.8 | 34.8 | 40.6 | 41.0 | 55 / 121 | 528 / 830 |
+| Marathi | 50 | 44.8 | 41.7 | 54.3 | 45.9 | 53 / 93 | 1052 / 1742 |
+| Vietnamese | 49 | 46.5 | 51.9 | 60.0 | 56.8 | 66 / 121 | 581 / 892 |
+| Telugu | 47 | 49.7 | 47.6 | 60.0 | 51.9 | 32 / 67 | 1540 / 3142 |
+
+What this says:
+- **Every target works on the fast path.** Bergamot translates a segment in 26–75 ms p50 for all 15 languages, inside the 100–150 ms budget.
+- **On clean English, Bergamot scores the same as or higher than Hy-MT2 on all 15 targets.** It ties on Spanish and Japanese (Hy-MT2 +0.4, within noise) and leads by 8–12 points on the Indic languages (hi, bn, ur, mr, te) and Indonesian.
+- **For hi, bn, ur, mr and te, the white line scores lower than the grey one**, so Hy-MT2 does not improve the caption there. Hy-MT2 is also 2–3× slower on those languages (0.85–1.5 s p50, up to 3 s p90), because their scripts cost many more tokens.
+- **Spot check:** on the sample sentence I read, Hy-MT2's Bengali and Urdu kept "World War I" and "after seeing", which the grey line dropped. chrF scores closeness to one human wording, not meaning, so read `data/eval-targets.json` before dropping Hy-MT2 for a language.
+- **Compare columns within a row, not across rows.** chrF depends on the script: Chinese and Japanese score low everywhere because one wrong character costs more.
+- **Likely pilot setup:** Bergamot for the grey line on every target. Hy-MT2 for the white line on the European languages, Chinese, Japanese and Vietnamese. For the Indic languages, either Bergamot on Parakeet's text (not measured yet) or a better metric (COMET) to decide.
+
+`/live` itself still captions only into Chinese. `hymt()` takes the target name, and the Bergamot models above are the same files `/live` would load.
 
 ## Scoring models and approaches (`eval.js`)
 
