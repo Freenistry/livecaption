@@ -71,6 +71,17 @@ This is the English path. For other spoken languages the streaming model is Nemo
 6. **10 s segment cap** instead of 5 s (better chrF and WER on the eval).
 7. **Other spoken languages.** Nemotron 3.5 ASR streaming (one model, 32 languages) + Bergamot through English for the grey line, Hy-MT2 for the white line. Runs on the CPU (560 ms model) or the GPU (80 ms model, ~35% faster grey captions).
 8. **First pilot scope: English in, 15 targets out (`eval-targets.js`).** All 15 have a fast Bergamot path. On human English, Hy-MT2 never beats Bergamot by more than noise (+0.4 at best), and it is weakest and slowest on the Indic languages.
+9. **Cebuano–English check (`eval-ceb.js`).** Bergamot has no Cebuano model. Its Tagalog model handles Filipino well (chrF 67.9) but not Cebuano (40.6, often nonsense). Hy-MT2 scores 44.2 on Cebuano and is not good enough either. Cebuano needs its own speech and translation models.
+
+### Proposed direction for a real-time translation app (from the numbers below)
+
+- **One English speech pass per speaker, translated per viewer.** The server recognizes speech once and broadcasts English, grey and white lines kept separate. Each viewer picks a target language.
+- **Translate in the viewer's browser with Bergamot** (what Firefox uses offline). About 40 MB per language, 26–75 ms per segment. Server cost stays the same with more viewers or languages. If phones are too slow, run Bergamot on the server, only for languages someone is watching.
+- **Probably drop Hy-MT2.** On human English it never beats Bergamot by more than noise on any of the 15 targets. It is 5–20× slower and causes the GPU contention behind the slow white lines. Check first: score Bergamot on Parakeet's text, add COMET, and have native speakers review ~20 sentences per language.
+- **Spend the effort on speech recognition.** Recognition errors and segment cuts cost ~5 chrF points; translation is fine. Use Parakeet 0.6B on a server GPU for the white line, and cut segments at sentence ends instead of any 0.5 s pause.
+- **Server:** recognition only, on a small GPU or a few CPU cores per speaker. English decoding moves to a worker thread. The Cloudflare Worker stays as auth, WebSocket relay and static page.
+- **Before anything public:** rotate the app token. Check the model licences (Bergamot/Firefox, NVIDIA Parakeet/Nemotron, Tencent's Hy-MT2 terms). Build a test set of real spontaneous speech from the target domain; FLEURS is read speech.
+- **Not in the pilot:** other spoken input languages (the Nemotron path exists), Cebuano (see below), telling speakers apart, noise handling.
 
 ## Set it up locally (Windows)
 
@@ -238,6 +249,35 @@ What this says:
 - **Likely pilot setup:** Bergamot for the grey line on every target. Hy-MT2 for the white line on the European languages, Chinese, Japanese and Vietnamese. For the Indic languages, either Bergamot on Parakeet's text (not measured yet) or a better metric (COMET) to decide.
 
 `/live` itself still captions only into Chinese. `hymt()` takes the target name, and the Bergamot models above are the same files `/live` would load.
+
+## Cebuano and Cebuano–English mix → English (`eval-ceb.js`)
+
+Bergamot has **no Cebuano model**; Firefox ships Tagalog only. This tests Bergamot's Tagalog→English model on Cebuano against Hy-MT2. It is text only, with no speech recognition.
+
+```powershell
+node get-models.js --to=en tl
+node eval-ceb.js        # ~3 min, Hy-MT2 on :8099
+```
+
+Results from 2026-11-18, chrF against the English reference:
+
+| input → English | n | Bergamot (tl→en) | ms p50 / p90 | Hy-MT2 | ms p50 / p90 |
+|---|---|---|---|---|---|
+| Filipino (FLEURS dev, control) | 129 | **67.9** | 88 / 184 | 62.3 | 422 / 774 |
+| Pure Cebuano (FLEURS dev) | 129 | 40.6 | 123 / 213 | **44.2** | 469 / 768 |
+| Cebuano–English mix (12 hand-written sentences) | 12 | 60.1 | 40 / 55 | 58.2 | 263 / 279 |
+
+What this says, from reading the outputs in `data/eval-ceb.json`:
+- **Filipino works.** Bergamot beats Hy-MT2 and is 5× faster.
+- **Pure Cebuano does not work on either model.** Bergamot makes things up ("The deer satellite phones are not a savage snail…"). Hy-MT2 gets the gist but often the wrong meaning.
+- **On the mixed sentences, the scores flatter both models.** The English words get copied through, which scores well even when the meaning is wrong. About 6 of 12 kept the meaning with Bergamot and 7 of 12 with Hy-MT2, for example "Basin mag-ulan mamaya so dad-a imong payong" → "Basin rain later so dad-a umbrella" (Bergamot).
+- **The mix set is weak evidence.** It was written by the assistant, not a native speaker. FLEURS has no code-switched speech.
+- **Speech is untested and is the bigger gap.** None of the speech models here list Cebuano, and whisper supports Tagalog but not Cebuano.
+
+To support Cebuano–English for real:
+1. A speech model fine-tuned on Cebuano and mixed speech. FLEURS and Common Voice have some.
+2. A real Cebuano translator. NLLB-200 600M (CC-BY-NC: no commercial use) or MADLAD-400 (Apache-2.0) are the next to score on this same script.
+3. 50–100 real code-switched sentences, recorded and translated by native speakers.
 
 ## Scoring models and approaches (`eval.js`)
 
