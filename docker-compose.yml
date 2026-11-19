@@ -1,0 +1,38 @@
+# docker compose up -d --build        -> Node server on http://localhost:3000, Elixir server on http://localhost:3001
+# docker compose up -d --build node   -> just one of them (or: elixir)
+# First run downloads ~2 GB of models into the "models" volume (sha256-checked), then reuses them.
+# Extra spoken languages: SPOKEN="es de ja" docker compose up -d --build
+# Hy-MT2 runs on the CPU here (slow: white captions take seconds). NVIDIA GPU: see docker-compose.gpu.yml.
+services:
+  models:
+    build: { context: ., target: models }
+    command: ${SPOKEN:-}
+    volumes: [models:/app/models]
+    restart: "no"
+
+  llama:
+    # llama.cpp's official server image; pinned by digest (b12464, built 2026-11-17)
+    image: ghcr.io/ggml-org/llama.cpp:server-b12464@sha256:5b43086e3ba7ea5794d72904654f6cd41224a9b1c6ac0398f4940ee380d30f23
+    command: ["-m", "/models/Hy-MT2-Q4.gguf", "--host", "0.0.0.0", "--port", "8080", "--jinja", "-c", "2048", "-ngl", "99"]
+    volumes: [models:/models:ro]
+    depends_on: { models: { condition: service_completed_successfully } }
+    restart: unless-stopped
+
+  node:
+    build: { context: ., target: node }
+    environment: { MT_URL: "http://llama:8080", APP_TOKEN: "${APP_TOKEN:-}" }
+    ports: ["127.0.0.1:3000:3000"]
+    volumes: [models:/app/models:ro]
+    depends_on: { llama: { condition: service_healthy } }
+    restart: unless-stopped
+
+  elixir:
+    build: { context: ., target: elixir }
+    environment: { MT_URL: "http://llama:8080", APP_TOKEN: "${APP_TOKEN:-}" }
+    ports: ["127.0.0.1:3001:3000"]
+    volumes: [models:/app/models:ro]
+    depends_on: { llama: { condition: service_healthy } }
+    restart: unless-stopped
+
+volumes:
+  models:

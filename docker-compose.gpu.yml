@@ -1,0 +1,13 @@
+# Hy-MT2 on an NVIDIA GPU (white captions in ~0.5 s instead of seconds).
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+# Needs an NVIDIA driver with CUDA >= 12.8 (Windows 572+, Linux 570+) and, on Linux, the NVIDIA Container Toolkit.
+# Tested 2026-11-19 on driver 536 (CUDA 12.2): refused ("unsatisfied condition: cuda>=12.8"). The Vulkan image does not
+# help on Windows either: Docker Desktop's WSL2 exposes CUDA only, so llama.cpp falls back to the CPU. On an older
+# driver, run Hy-MT2 natively (start.ps1 / serve.ps1 start llama-server on Vulkan) and point MT_URL at the host.
+services:
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b12464@sha256:ae96e52f8b2106ea82bad786ee2d08bb9b0a8c93403df9c27ae1bf065a118089
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]

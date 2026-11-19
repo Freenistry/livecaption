@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # macOS / Linux setup for the app (Elixir server + Node engine + llama-server for Hy-MT2). Every download is sha256-pinned.
 # Usage: ./setup.sh                    English speech -> the 15 pilot targets
+#        MODELS_ONLY=1 ./setup.sh ...  models + Hy-MT2 only (what docker compose's "models" step runs)
 #        ./setup.sh es de ja           also these spoken languages (Nemotron CPU model + Bergamot X->en)
 # Needs: Elixir >= 1.18, Node >= 20, curl, tar, bzip2. No GPU speech model here (the CUDA build is Windows-only for now).
 set -euo pipefail
@@ -9,10 +10,10 @@ ROOT=$PWD M=$ROOT/models V=$ROOT/vendor
 
 need() { command -v "$1" >/dev/null || { echo "missing: $1 ($2)" >&2; exit 1; }; }
 need node "https://nodejs.org, or: brew install node"
-need elixir "brew install elixir | https://elixir-lang.org/install.html (apt's elixir is too old)"
+[ -n "${MODELS_ONLY:-}" ] || need elixir "brew install elixir | https://elixir-lang.org/install.html (apt's elixir is too old)"
 need curl ""; need tar ""; need bzip2 ""
 node -e 'process.exit(+process.versions.node.split(".")[0] < 20 ? 1 : 0)' || { echo "need Node >= 20 (have $(node -v))" >&2; exit 1; }
-elixir -e 'System.halt(if Version.match?(System.version(), ">= 1.18.0"), do: 0, else: 1)' || { echo "need Elixir >= 1.18 (built-in JSON)" >&2; exit 1; }
+[ -n "${MODELS_ONLY:-}" ] || elixir -e 'System.halt(if Version.match?(System.version(), ">= 1.18.0"), do: 0, else: 1)' || { echo "need Elixir >= 1.18 (built-in JSON)" >&2; exit 1; }
 
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 # get URL OUT SHA256: skip if present and correct, else download, check, move into place
@@ -51,6 +52,7 @@ if [ $# -gt 0 ]; then # other spoken languages: Nemotron 3.5 streaming int8 560 
   node get-models.js "$@"
 fi
 
+if [ -z "${MODELS_ONLY:-}" ]; then
 # llama.cpp b12428 (Metal on macOS; CPU on Linux, or LLAMA_BUILD=ubuntu-vulkan-x64 for a Vulkan GPU) + Hy-MT2 1.8B Q4
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64)  b=macos-arm64;  s=7d72477a2a375cc1d93e308b34e26fb9a608c2f93750517d2bafc59af578d3e2 ;;
@@ -67,8 +69,10 @@ if [ ! -x $V/llama/llama-server ] || [ "$(cat $V/llama/.build 2>/dev/null)" != $
   rm $V/llama.tgz
   echo $b > $V/llama/.build
 fi
+fi
 get https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/Hy-MT2-1.8B-Q4_K_M.gguf \
   $M/Hy-MT2-Q4.gguf dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699
 
+[ -n "${MODELS_ONLY:-}" ] && { echo "OK. models in $M"; exit 0; }
 (cd server_ex && mix local.hex --force --if-missing >/dev/null && mix local.rebar --force --if-missing >/dev/null && mix deps.get && MIX_ENV=prod mix compile)
 echo "OK. Run ./serve.sh"

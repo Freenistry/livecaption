@@ -83,6 +83,29 @@ This is the English path. For other spoken languages the streaming model is Nemo
 - **Before anything public:** rotate the app token. Check the model licences (Bergamot/Firefox, NVIDIA Parakeet/Nemotron, Tencent's Hy-MT2 terms). Build a test set of real spontaneous speech from the target domain; FLEURS is read speech.
 - **Not in the pilot:** other spoken input languages (the Nemotron path exists), Cebuano (see below), telling speakers apart, noise handling.
 
+## Run it in Docker (Node and Elixir servers)
+
+```bash
+docker compose up -d --build                    # Node server -> http://localhost:3000, Elixir server -> http://localhost:3001
+docker compose up -d --build node               # just one of them (or: elixir)
+SPOKEN="es de ja" docker compose up -d --build  # also these spoken languages
+docker compose down                             # stop (models stay in the "models" volume)
+```
+
+What starts:
+- **`models`** downloads every model into a shared volume and checks its sha256 (`setup.sh` with `MODELS_ONLY=1`). It takes ~10 min the first time and seconds after that, then exits.
+- **`llama`** is llama.cpp's official server image running Hy-MT2, pinned to build b12464 by digest.
+- **`node`** runs `server.js`.
+- **`elixir`** runs the Elixir release, with `engine.js` as its Node child.
+- Both servers wait until the models are loaded before reporting healthy, and listen on 127.0.0.1 only.
+- `APP_TOKEN=... docker compose up -d` turns on the token check.
+
+Tested 2026-11-19 on Docker Desktop (Windows, WSL2, CPU only):
+- All three services were healthy, and `live.test.js` passed against both servers (exit 0).
+- `verify/mic-check.js` passed against both (exit 0): Start stayed locked until the fake mic was heard, captions appeared, and the blocked-mic message showed.
+- **Hy-MT2 runs on the CPU in Docker here, so it is slow.** White captions took ~22 s after a pause; the grey line took 110 ms per update. For real-time use, run Hy-MT2 outside Docker on the GPU (`serve.ps1`), or use `docker-compose.gpu.yml` with a new enough driver.
+- **`docker-compose.gpu.yml`** uses the CUDA image and needs an NVIDIA driver with CUDA ≥ 12.8. It was refused on this machine's driver 536 (CUDA 12.2). The Vulkan image does not see the GPU inside Docker Desktop either.
+
 ## Set it up on macOS / Linux (Elixir server)
 
 Needs Elixir ≥ 1.18 (`brew install elixir`, or https://elixir-lang.org/install.html; Ubuntu's apt package is too old), Node ≥ 20, curl, tar and bzip2.

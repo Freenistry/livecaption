@@ -307,4 +307,4 @@ wss.on('connection', (ws, req) => {
 });
 
 const live = require('./live')({ mtUrl: MT_URL });
-server.listen(PORT, () =>console.log(`http://localhost:${PORT}  (ASR ${ASR_URL}, MT ${MT_URL}, ${SOURCE} -> ${TARGET})`));
+server.listen(PORT, process.env.HOST || '127.0.0.1', () => console.log(`http://localhost:${PORT}  (ASR ${ASR_URL}, MT ${MT_URL}, ${SOURCE} -> ${TARGET})`));

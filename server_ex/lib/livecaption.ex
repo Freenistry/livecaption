@@ -8,15 +8,23 @@
 #   GET /api/health      -> {"ok":true}
 #   WS  /live?lang=en&to=zh-Hans,es   (80 ms PCM16 frames in, JSON captions out; same protocol as server.js)
 #
-# Env: PORT (3000), MT_URL (http://127.0.0.1:8099), APP_TOKEN (empty = open, fine for localhost), NODE (node),
+# Env: PORT (3000), HOST (127.0.0.1), APP_ROOT (dir with engine.js + public/), MT_URL (http://127.0.0.1:8099), APP_TOKEN (empty = open, fine for localhost), NODE (node),
 #      PID_FILE (written on boot; serve.sh stops the VM with it, which closes engine.js's stdin so Node exits too).
+
+defmodule Livecaption do
+  @moduledoc "Where engine.js and public/ live: APP_ROOT (set in Docker / releases), else the repo this was compiled in."
+  @src Path.expand("../..", __DIR__)
+  def root, do: System.get_env("APP_ROOT", @src)
+  def public, do: Path.join(root(), "public")
+end
 
 defmodule Livecaption.Application do
   use Application
 
   def start(_type, _args) do
     port = String.to_integer(System.get_env("PORT", "3000"))
-    children = [Livecaption.Engine, {Bandit, plug: Livecaption.Router, port: port, ip: {127, 0, 0, 1}}]
+    {:ok, ip} = :inet.parse_address(String.to_charlist(System.get_env("HOST", "127.0.0.1"))) # 0.0.0.0 in Docker
+    children = [Livecaption.Engine, {Bandit, plug: Livecaption.Router, port: port, ip: ip}]
     {:ok, pid} = Supervisor.start_link(children, strategy: :one_for_one, name: Livecaption.Supervisor)
     if f = System.get_env("PID_FILE"), do: File.write!(f, System.pid()) # the VM itself, not the mix/elixir wrapper scripts
     IO.puts("http://localhost:#{port}")
@@ -27,7 +35,6 @@ end
 defmodule Livecaption.Engine do
   @moduledoc "Owns the Node child (engine.js) and routes its frames to the right WebSocket process."
   use GenServer
-  @root Path.expand("../..", __DIR__)
 
   def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   def open(params), do: GenServer.call(__MODULE__, {:open, self(), params})
@@ -39,7 +46,7 @@ defmodule Livecaption.Engine do
   @impl true
   def init(_) do
     node = System.find_executable(System.get_env("NODE", "node")) || raise "node not found on PATH"
-    port = Port.open({:spawn_executable, node}, [:binary, {:packet, 4}, :exit_status, args: [Path.join(@root, "engine.js")], cd: @root])
+    port = Port.open({:spawn_executable, node}, [:binary, {:packet, 4}, :exit_status, args: [Path.join(Livecaption.root(), "engine.js")], cd: Livecaption.root()])
     {:ok, %{port: port, next: 1, sessions: %{}, languages: nil}}
   end
 
@@ -108,13 +115,11 @@ end
 
 defmodule Livecaption.Router do
   use Plug.Router
-  @public Path.expand("../../public", __DIR__)
-
-  plug Plug.Static, at: "/", from: @public, only: ~w(app.html live.html index.html vad.js)
+  plug Plug.Static, at: "/", from: {Livecaption, :public, []}, only: ~w(app.html live.html index.html vad.js)
   plug :match
   plug :dispatch
 
-  get "/", do: conn |> put_resp_content_type("text/html") |> send_file(200, Path.join(@public, "app.html"))
+  get "/", do: conn |> put_resp_content_type("text/html") |> send_file(200, Path.join(Livecaption.public(), "app.html"))
   get "/api/health", do: json(conn, ~s({"ok":true,"backend":"elixir"}))
 
   get "/api/languages" do
