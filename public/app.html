@@ -10,11 +10,11 @@
 <style>
   :root {
     --bg: #f7f6f3; --fg: #1d1d1b; --muted: #8a8780; --line: #e3e1dc; --soft: #efede8; --accent: #1d1d1b; --on-accent: #f7f6f3;
-    --err: #a3392b;
+    --err: #a3392b; --ok: #3f7a4c;
     color-scheme: light; font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --bg: #161615; --fg: #ecebe7; --muted: #8d8a83; --line: #2c2b29; --soft: #222120; --accent: #ecebe7; --on-accent: #161615; --err: #e0806f; color-scheme: dark; }
+    :root:not([data-theme="light"]) { --bg: #161615; --fg: #ecebe7; --muted: #8d8a83; --line: #2c2b29; --soft: #222120; --accent: #ecebe7; --on-accent: #161615; --err: #e0806f; --ok: #7fbf8c; color-scheme: dark; }
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -37,6 +37,10 @@
   .chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .chip:disabled { opacity: .35; cursor: not-allowed; }
   .hint { font-size: .78rem; color: var(--muted); margin-top: 12px; min-height: 1.2em; }
+  #mictest { margin: 0 auto; }
+  .meter { width: 220px; height: 4px; margin: 16px auto 0; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--fg); transform-origin: left; transform: scaleX(0); }
+  .hint.ok { color: var(--ok); } .hint.bad { color: var(--err); }
   #go { font: inherit; font-size: .85rem; letter-spacing: .14em; text-transform: uppercase; color: var(--on-accent); background: var(--accent);
     border: 0; border-radius: 999px; padding: 14px 40px; cursor: pointer; }
   #go:disabled { opacity: .35; cursor: not-allowed; }
@@ -74,6 +78,14 @@
     </div>
   </section>
 
+  <div class="field" id="micfield">
+    <label class="label" for="mic">Microphone</label>
+    <button id="mictest" class="chip" type="button">Test microphone</button>
+    <select id="mic" hidden></select>
+    <div class="meter" id="meter" role="meter" aria-label="Microphone level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><i></i></div>
+    <div class="hint" id="michint" aria-live="polite">Check your microphone before you start</div>
+  </div>
+
   <button id="go" disabled>Start</button>
   <div id="err" role="alert"></div>
   <div id="status">idle</div>
@@ -107,8 +119,10 @@ function renderChips() {
     $('to').append(b);
   }
   $('hint').textContent = picked.size >= L.maxTargets ? `Up to ${L.maxTargets} languages at once` : '';
-  $('go').disabled = !picked.size;
+  updateGo();
 }
+// Start needs a target and a microphone that has been heard; Stop is always allowed
+const updateGo = () => { $('go').disabled = !running && (!picked.size || !micOk); };
 
 fetch('/api/languages').then((r) => r.json()).then((j) => {
   L = j;
@@ -164,40 +178,111 @@ class Pcm16 extends AudioWorkletProcessor {
 }
 registerProcessor('pcm16', Pcm16);`;
 
-let ctx, stream, ws;
+// --- microphone check: pick a device, see the level, Start unlocks once speech is heard ---
+let mic = null, micOk = false, running = false, ws = null;
+const micHint = (msg, cls = '') => { $('michint').textContent = msg; $('michint').className = `hint ${cls}`; };
+function micError(e) {
+  const msg = !navigator.mediaDevices?.getUserMedia ? 'The microphone needs https or localhost. Open this page as http://localhost:3000.'
+    : ({ NotAllowedError: 'Microphone access is blocked. Allow it from the icon in the address bar, then test again.',
+      SecurityError: 'Microphone access is blocked by the browser for this page.',
+      NotFoundError: 'No microphone found. Plug one in, then test again.',
+      OverconstrainedError: 'That microphone is gone. Pick another one.',
+      NotReadableError: 'The microphone is busy in another app, or the system blocked it.',
+      AbortError: 'The microphone could not start. Try again or pick another one.' })[e?.name] || e?.message || String(e);
+  micOk = false; closeMic(); updateGo();
+  $('mictest').hidden = false; $('mictest').textContent = 'Test again';
+  micHint(msg, 'bad');
+}
+function closeMic() {
+  if (!mic) return;
+  cancelAnimationFrame(mic.raf); mic.stream.getTracks().forEach((t) => t.stop()); mic.ctx.close();
+  mic = null; $('meter').hidden = true;
+}
+async function openMic(deviceId) {
+  closeMic();
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('insecure');
+  const audio = { channelCount: 1, echoCancellation: true, noiseSuppression: true, ...(deviceId && { deviceId: { exact: deviceId } }) };
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio }); }
+  catch (e) { if (e.name !== 'OverconstrainedError' || !deviceId) throw e; return openMic(); } // saved device unplugged: use the default
+  const ctx = new AudioContext(); await ctx.resume();
+  const src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
+  an.fftSize = 1024; src.connect(an);
+  const track = stream.getAudioTracks()[0];
+  track.onended = () => { if (running) { ui(false); $('err').textContent = 'The microphone was disconnected.'; } micError({ name: 'AbortError' }); };
+  mic = { stream, ctx, src, an, raf: 0, id: track.getSettings().deviceId };
+  await listMics(mic.id);
+  $('meter').hidden = false; $('mictest').hidden = true;
+  meter(performance.now());
+}
+async function listMics(current) {
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId);
+  $('mic').innerHTML = '';
+  devs.forEach((d, i) => $('mic').add(new Option(d.label || `Microphone ${i + 1}`, d.deviceId)));
+  if (current && devs.some((d) => d.deviceId === current)) $('mic').value = current;
+  $('mic').hidden = !devs.length;
+}
+// RMS level in dBFS -> bar; "works" after 250 ms above -45 dBFS (speech, not room hiss); nudge after 6 s of silence
+function meter(openedAt) {
+  const buf = new Float32Array(mic.an.fftSize);
+  let heard = 0, last = performance.now(), aria = 0;
+  const tick = (now) => {
+    if (!mic) return;
+    mic.an.getFloatTimeDomainData(buf);
+    let s = 0; for (const v of buf) s += v * v;
+    const db = 10 * Math.log10(s / buf.length + 1e-12), level = Math.min(1, Math.max(0, (db + 60) / 60));
+    $('meter').firstChild.style.transform = `scaleX(${level})`;
+    if (now - aria > 250) { aria = now; $('meter').setAttribute('aria-valuenow', Math.round(level * 100)); }
+    if (db > -45) heard += now - last;
+    last = now;
+    if (!micOk && heard > 250) { micOk = true; updateGo(); micHint('Microphone works', 'ok'); }
+    else if (!micOk && now - openedAt > 6000) micHint('No sound yet. Speak a few words, or pick another microphone.', 'bad');
+    mic.raf = requestAnimationFrame(tick);
+  };
+  mic.raf = requestAnimationFrame(tick);
+}
+$('mictest').onclick = () => { micHint('Allow microphone access, then say something'); openMic(store.get('mic', '')).then(() => { if (!micOk) micHint('Say something…'); }, micError); };
+$('mic').onchange = () => { store.set('mic', $('mic').value); micOk = false; updateGo(); micHint('Say something…'); openMic($('mic').value).catch(micError); };
+navigator.mediaDevices?.addEventListener?.('devicechange', () => mic && listMics(mic.id));
+
+// --- session ---
+let node = null;
 async function start() {
   const to = [...picked];
+  if (!mic) await openMic(store.get('mic', '')); // released after the last Stop; permission is already granted
   buildLanes(to);
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/live?token=${encodeURIComponent(token)}&lang=${$('from').value}&to=${to.join(',')}`);
   ws.binaryType = 'arraybuffer';
   ws.onmessage = (e) => { try { onMsg(JSON.parse(e.data)); } catch {} };
-  ws.onclose = (e) => { if (ctx) ui(false); setStatus(false, e.code === 1006 && !token ? 'closed (token needed? add ?token=…)' : 'idle'); };
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('could not connect to the server')); });
-  stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-  ctx = new AudioContext();
-  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: 'text/javascript' })));
-  const node = new AudioWorkletNode(ctx, 'pcm16');
+  ws.onclose = (e) => { if (running) ui(false); setStatus(false, e.code === 1006 && !token ? 'closed (token needed? add ?token=…)' : 'idle'); };
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('Could not connect to the server.')); });
+  await mic.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: 'text/javascript' })));
+  node = new AudioWorkletNode(mic.ctx, 'pcm16');
   node.port.onmessage = (e) => { if (ws?.readyState === 1) ws.send(e.data); };
-  ctx.createMediaStreamSource(stream).connect(node);
+  mic.src.connect(node);
   setStatus(true, 'listening');
 }
 function stop() {
   if (ws?.readyState === 1) ws.send('flush');
-  stream?.getTracks().forEach((t) => t.stop()); ctx?.close();
+  node?.disconnect(); node = null;
   const w = ws; setTimeout(() => w?.close(), 3000); // let the last final arrive
-  ctx = stream = ws = null;
+  ws = null;
+  closeMic(); // release the mic (and the browser's recording indicator); Start reopens the same device
+  if (micOk) micHint('Microphone ready', 'ok');
 }
 const setStatus = (live, msg) => { $('status').className = live ? 'live' : ''; $('status').textContent = msg; };
-function ui(running) {
-  $('setup').hidden = running; $('out').hidden = !running && !$('lanes').children.length;
-  $('go').textContent = running ? 'Stop' : 'Start'; $('go').classList.toggle('on', running);
-  if (!running) { stop(); setStatus(false, 'idle'); }
+function ui(on) {
+  running = on;
+  $('setup').hidden = on; $('mic').disabled = on; $('out').hidden = !on && !$('lanes').children.length;
+  $('go').textContent = on ? 'Stop' : 'Start'; $('go').classList.toggle('on', on);
+  if (!on) { stop(); setStatus(false, 'idle'); }
+  updateGo();
 }
 $('go').onclick = async () => {
-  if (ctx || ws) return ui(false);
+  if (running) return ui(false);
   $('err').textContent = '';
   try { ui(true); await start(); }
-  catch (e) { ui(false); $('err').textContent = e.message; }
+  catch (e) { ui(false); if (['NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError', 'AbortError', 'SecurityError'].includes(e.name)) micError(e); else $('err').textContent = e.message; }
 };
 </script>
 </body>
