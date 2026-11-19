@@ -129,6 +129,41 @@ The AWS stack is the most **reliable**: it has SLAs, multiple availability zones
 
 **The best quality, if cost is not a factor:** Soniox (or Deepgram) for ASR, an LLM for the final translation with the context of the sermon, and ElevenLabs or Polly Generative for the voice. Use AWS only for the infrastructure (AppSync or our Elixir server for fan-out). Reliability then depends on 3 vendors, so for each one, keep a fallback that you can switch to.
 
+## Options when reliability has priority over cost
+
+We do not choose one option here. Choose the option for each event type.
+
+| | **Option 1: AWS managed** (Transcribe → Translate → Polly, AppSync) | **Option 2: Local livecaption** (GPU box at the venue) | **Option 3: AWS primary + local fallback** |
+|---|---|---|---|
+| Infrastructure reliability | Highest: multi-AZ, SLAs, auto-scaling, AWS support | One box, which is a single point of failure (use a spare box to help) | Highest: each option covers the failure modes of the other |
+| Venue internet down | **Captions stop** | **Captions continue** on the local Wi-Fi | Captions continue (local) |
+| Region or vendor outage | Session fails unless a second region is ready | Not affected | Local takes over |
+| Scale (listeners) | Unlimited | Limited by the venue Wi-Fi and Elixir (requires a load test) | Unlimited online, venue-limited offline |
+| Languages | 73 captions, voice in 61 | ~33 spoken languages, voice through Piper | AWS set; local set when on fallback |
+| Speech recognition accuracy | Good (Transcribe is below Soniox) | Lower (our weakest step) | AWS level, drops on fallback |
+| Final caption latency | ~1–2 s | ~0.9–1.2 s | AWS level |
+| Privacy | Audio leaves the venue | Audio stays at the venue | Audio leaves the venue (normal operation) |
+| Operations | Raise quotas, 1 region for each session, reconnect long streams (Transcribe stream time limit; check current AWS docs) | Bring the hardware, set it up, keep the models up to date | Both: two systems to test before each event |
+| Cost | ~$4–11 per service-hour, scales with languages | Hardware only | Both |
+
+**Catches of AWS, even if cost is not a factor:**
+
+1. The venue internet is the largest risk, and no cloud can fix it.
+2. There is no automatic regional failover for a live session.
+3. The Transcribe concurrent-stream quota is limited for each account.
+4. A Transcribe stream has a time limit, so long events must reconnect without a gap.
+5. Three services are in series, so the slowest or failed one stops the captions.
+6. The captions arrive reliably, but they can be less accurate than with Soniox.
+
+**Hardening, for every option:**
+
+- Two internet links at the venue (wired + 4G/5G) with failover.
+- For large events, a session that is ready in a second region.
+- A sound check with the real sound desk 1 h before the event.
+- An alert if speech is detected and there are no captions for 5 s.
+
+**Recommended (most reliable):** Option 3. AWS is the primary path, a second region is ready, and the local livecaption box is the fallback if the internet fails.
+
 ## Sources
 
 - https://faithly.live/ and https://faithly.live/privacy.html
