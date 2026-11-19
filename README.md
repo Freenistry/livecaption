@@ -412,6 +412,40 @@ What this says:
 - **The p90 latency comes from the GPU, not the servers.** One GTX 1060 runs every Hy-MT2 call for 4 targets at once, and Bergamot gives the CPU-only languages (hi, bn, ur, mr, te) finals in 0.3–0.7 s p50. The slow tail is Hy-MT2 for zh, es, ar, fr, pt and ru (pass 1 and 2): some finals waited 15–30 s while llama-server's prompt processing stalled (prompt eval p99 2.5 s, max 9.5 s in its log). The Elixir session log shows MT ms close to the total wait, so the requests were stuck in llama-server.
 - **The p50 latency for one to two Hy-MT2 targets is 0.8–1.7 s.** That is close to the earlier single-target number. For a pilot with 4 Hy-MT2 targets, plan for a faster GPU or one llama-server per target.
 
+## Faster hardware for local hosting
+
+Where the time goes between the end of speech and the final translation, on the GTX 1060 + i7-7700K (from the tables above):
+
+| Step | Runs on | Measured | Does faster hardware help? |
+|---|---|---|---|
+| Waiting to confirm the pause | – | 0.5 s (fixed setting) | No. At 0.3 s the endpointer split clauses and Hy-MT2 scored lower. |
+| Parakeet re-reads the segment | CPU, 2 threads | 0.2–0.7 s | Yes: a faster CPU, more threads, or Parakeet on the GPU (estimate: ~0.1 s). |
+| Hy-MT2 final translation | GPU (Vulkan) | 0.35–0.6 s per target; 1–1.5 s for Indic scripts | Yes, the biggest gain. |
+| 4 Hy-MT2 targets at once | GPU, shared | p50 1–5 s, p90 up to 25–30 s | Yes. One GTX 1060 runs out of capacity. |
+| Grey line (Bergamot) | CPU | 20–75 ms | Already fast enough. More cores let more people use it at the same time. |
+
+Expected changes. These are estimates and are not measured:
+- **A current NVIDIA GPU (for example an RTX 4070 or 4090).** Hy-MT2 is small (1.8B, Q4). A current GPU should translate several times faster than the GTX 1060 and handle 4 targets at once without long waits. The likely result is about 1 s from the end of speech to the final translation, for any 4 targets.
+- **NVIDIA driver 572 or later (free).** Docker can then use the GPU directly through `docker-compose.gpu.yml` (CUDA), with no separate host `llama-server`. CUDA is usually faster than Vulkan. Driver 536 on this machine blocks this; the GTX 1060 itself does not.
+- **A faster CPU with more cores.** Parakeet and Bergamot get faster in proportion. More cores matter most when many people caption at the same time.
+- **Apple Silicon.** Hy-MT2 runs on the Mac's GPU through Metal (`docker-up.sh`). It is likely faster than the GTX 1060, but this is not measured.
+
+Hardware does not remove these delays:
+- The 0.5 s pause before a final translation starts.
+- The 80 ms audio chunks, which are the lowest possible grey-line delay.
+- So the best case is about 1 s to the final translation and about 50 ms for the grey line. The grey line is already at about 50 ms today.
+
+Software changes that help on any hardware (each needs some code):
+- Run Parakeet on the GPU (sherpa-onnx CUDA provider).
+- Run one `llama-server` per Hy-MT2 target, or give one server more parallel slots on a large GPU.
+- Use Bergamot for the white line on more targets when speed matters more than a few chrF points.
+
+To measure a new machine, run the same eval and compare its row with the tables above:
+```bash
+./docker-up.sh   # or .docker-up.ps1
+node eval-live.js n=50 to=all label=newbox   # results in eval-results.jsonl and data/eval-live-newbox.json
+```
+
 ## Cebuano and Cebuano–English mix → English (`eval-ceb.js`)
 
 Bergamot has **no Cebuano model**; Firefox ships Tagalog only. This tests Bergamot's Tagalog→English model on Cebuano against Hy-MT2. It is text only, with no speech recognition.
