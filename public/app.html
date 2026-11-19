@@ -49,6 +49,7 @@
   #status { font-size: .75rem; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
   #status::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--line); margin-right: 8px; vertical-align: 1px; }
   #status.live::before { background: #4f8a5b; }
+  #share a { color: inherit; }
   #out { margin-top: 56px; text-align: center; }
   #src { font-size: .9rem; color: var(--muted); min-height: 1.4em; margin: 0 0 40px; line-height: 1.5; }
   .lane { border-top: 1px solid var(--line); padding: 28px 0; }
@@ -89,6 +90,7 @@
   <button id="go" disabled>Start</button>
   <div id="err" role="alert"></div>
   <div id="status">idle</div>
+  <p class="hint" id="share" hidden>Listeners: <a id="sharelink"></a></p>
 
   <section id="out" hidden aria-live="polite">
     <p id="src" dir="auto"></p>
@@ -101,6 +103,9 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)
 const qsToken = new URLSearchParams(location.search).get('token');
 if (qsToken) store.set('appToken', qsToken);
 const token = qsToken || store.get('appToken', '');
+// ?room=x broadcasts this session to listeners at /r/x (Elixir server only)
+const room = new URLSearchParams(location.search).get('room');
+if (room) { const u = `${location.origin}/r/${encodeURIComponent(room)}`; $('sharelink').href = $('sharelink').textContent = u; $('share').hidden = false; }
 let L = { spoken: [], targets: [], maxTargets: 4 }, picked = new Set(store.get('to', ['zh-Hans']));
 const name = (code) => (L.targets.find((t) => t.code === code) || L.spoken.find((s) => s.code === code) || { name: code }).name;
 
@@ -251,7 +256,7 @@ async function start() {
   const to = [...picked];
   if (!mic) await openMic(store.get('mic', '')); // released after the last Stop; permission is already granted
   buildLanes(to);
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/live?token=${encodeURIComponent(token)}&lang=${$('from').value}&to=${to.join(',')}`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/live?token=${encodeURIComponent(token)}&lang=${$('from').value}&to=${to.join(',')}${room ? `&room=${encodeURIComponent(room)}` : ''}`);
   ws.binaryType = 'arraybuffer';
   ws.onmessage = (e) => { try { onMsg(JSON.parse(e.data)); } catch {} };
   ws.onclose = (e) => { if (running) ui(false); setStatus(false, e.code === 1006 && !token ? 'closed (token needed? add ?token=…)' : 'idle'); };

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Captions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..500&display=swap">
+<style>
+  :root {
+    --bg: #f7f6f3; --fg: #1d1d1b; --muted: #8a8780; --line: #e3e1dc; --soft: #efede8; --accent: #1d1d1b; --on-accent: #f7f6f3;
+    --err: #a3392b; --ok: #3f7a4c;
+    color-scheme: light; font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #161615; --fg: #ecebe7; --muted: #8d8a83; --line: #2c2b29; --soft: #222120; --accent: #ecebe7; --on-accent: #161615; --err: #e0806f; --ok: #7fbf8c; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh; display: flex; justify-content: center;
+    /* crisp text: grayscale AA on macOS (subpixel AA makes light-on-dark text look bold and fuzzy), kerning + Inter's
+       contextual alternates, and legibility-tuned rendering. Windows ignores the smoothing props and uses ClearType. */
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
+    font-kerning: normal; font-feature-settings: "kern", "calt"; font-optical-sizing: auto; }
+  main { width: 100%; max-width: 680px; padding: 72px 16px 48px; text-align: center; }
+  h1 { font-weight: 500; font-size: 1.05rem; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 56px; }
+  .label { display: block; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  .field { margin: 0 0 40px; }
+  select { font: inherit; font-size: 1rem; color: var(--fg); background: transparent; border: 0; border-bottom: 1px solid var(--line);
+    padding: 6px 24px 6px 4px; text-align: center; text-align-last: center; cursor: pointer; }
+  select:focus-visible, button:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+  .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .chip { font: inherit; font-size: .9rem; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 999px;
+    padding: 7px 16px; cursor: pointer; transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease; }
+  .chip:hover { border-color: var(--muted); }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .chip:disabled { opacity: .35; cursor: not-allowed; }
+  .hint { font-size: .78rem; color: var(--muted); margin-top: 12px; min-height: 1.2em; }
+  #mictest { margin: 0 auto; }
+  .meter { width: 220px; height: 4px; margin: 16px auto 0; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--fg); transform-origin: left; transform: scaleX(0); }
+  .hint.ok { color: var(--ok); } .hint.bad { color: var(--err); }
+  #go { font: inherit; font-size: .85rem; letter-spacing: .14em; text-transform: uppercase; color: var(--on-accent); background: var(--accent);
+    border: 0; border-radius: 999px; padding: 14px 40px; cursor: pointer; }
+  #go:disabled { opacity: .35; cursor: not-allowed; }
+  #go.on { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); }
+  #err { color: var(--err); font-size: .85rem; min-height: 1.3em; margin: 20px 0 0; }
+  #status { font-size: .75rem; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
+  #status::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--line); margin-right: 8px; vertical-align: 1px; }
+  #status.live::before { background: #4f8a5b; }
+  #share a { color: inherit; }
+  #out { margin-top: 56px; text-align: center; }
+  #src { font-size: .9rem; color: var(--muted); min-height: 1.4em; margin: 0 0 40px; line-height: 1.5; }
+  .lane { border-top: 1px solid var(--line); padding: 28px 0; }
+  .lane .label { margin-bottom: 14px; }
+  .past { font-size: 1.05rem; line-height: 1.55; color: var(--muted); }
+  .past p, .now { margin: 0 0 8px; }
+  .now { font-size: 1.45rem; line-height: 1.5; min-height: 1.5em; }
+  .now.partial { color: var(--muted); }
+  .now { transition: color 200ms ease; }
+  @media (prefers-reduced-motion: reduce) { .chip, .now { transition: none; } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<!-- Listener page for a room (/r/<room>): pick one of the speaker's languages, receive its captions. No microphone. -->
+<main>
+  <h1>Live Captions</h1>
+  <div class="field">
+    <span class="label" id="to-label">Language</span>
+    <div class="chips" id="to" role="group" aria-labelledby="to-label"></div>
+    <div class="hint" id="hint" aria-live="polite"></div>
+  </div>
+  <div id="status">connecting</div>
+  <section id="out" hidden aria-live="polite">
+    <div class="lane"><div class="past" id="past" dir="auto"></div><p class="now partial" id="now" dir="auto"></p></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const room = decodeURIComponent(location.pathname.split('/').pop() || '');
+const setStatus = (live, msg) => { $('status').className = live ? 'live' : ''; $('status').textContent = msg; };
+let names = {}, lang = null, ws = null, ping = 0, retry = 0, seg = -1, final = false;
+
+function render(langs) {
+  $('to').innerHTML = '';
+  for (const c of langs) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.type = 'button'; b.textContent = names[c] || c;
+    b.setAttribute('aria-pressed', c === lang);
+    b.onclick = () => { lang = c; store.set('listen', c); render(langs); connect(); };
+    $('to').append(b);
+  }
+  $('hint').textContent = langs.length ? '' : 'Waiting for the speaker to start…';
+}
+async function load() { // the room's languages come from the speaker; poll until the speaker is live
+  const r = await fetch('/api/rooms/' + encodeURIComponent(room)).then((r) => r.json()).catch(() => ({ live: false }));
+  const langs = r.live ? r.to : [];
+  if (!lang || !langs.includes(lang)) lang = langs.includes(store.get('listen')) ? store.get('listen') : langs[0] || null;
+  render(langs);
+  if (lang) connect(); else { setStatus(false, 'waiting for the speaker'); setTimeout(load, 5000); }
+}
+function line(m) {
+  if (m.seg > seg) { // new segment: push the previous line up
+    if ($('now').textContent) { const p = document.createElement('p'); p.textContent = $('now').textContent; $('past').append(p); while ($('past').children.length > 2) $('past').firstChild.remove(); }
+    seg = m.seg; $('now').textContent = ''; $('now').classList.add('partial'); final = false;
+  }
+  if (m.seg < seg) { if (m.type === 'final' && $('past').lastChild) $('past').lastChild.textContent = m.text; return; }
+  if (m.type === 'tr_partial' && !final) $('now').textContent = m.text;
+  if (m.type === 'final') { final = true; $('now').textContent = m.text; $('now').classList.remove('partial'); }
+}
+function connect() {
+  if (ws) { ws.onclose = null; ws.close(); }
+  clearInterval(ping); seg = -1; $('past').innerHTML = ''; $('now').textContent = '';
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/listen?room=${encodeURIComponent(room)}&to=${encodeURIComponent(lang)}`);
+  ws.onopen = () => { retry = 0; $('out').hidden = false; ping = setInterval(() => ws.readyState === 1 && ws.send('ping'), 30000); };
+  ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.type === 'status') { setStatus(!!m.live, m.msg); if (m.live) refresh(); return; }
+    line(m); };
+  ws.onclose = () => { clearInterval(ping); setStatus(false, 'reconnecting'); setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++) * (0.5 + Math.random())); }; // jittered: 2000 phones must not reconnect at once
+}
+async function refresh() { // speaker (re)started: its language list may have changed
+  const r = await fetch('/api/rooms/' + encodeURIComponent(room)).then((r) => r.json()).catch(() => null);
+  if (r?.live) render(r.to);
+}
+if (!/^[a-z0-9-]{1,32}$/.test(room)) { setStatus(false, 'no such room'); }
+else fetch('/api/languages').then((r) => r.json()).then((j) => { for (const t of j.targets || []) names[t.code] = t.name; }).catch(() => {}).finally(load);
+</script>
+</body>
+</html>

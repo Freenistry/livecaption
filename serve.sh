@@ -30,6 +30,7 @@ echo $! >"$D/llama.pid"
 wait_for http://127.0.0.1:8099/health 120 llama
 
 rm -f "$D/app.pid"
+ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null || true # one socket per listener: macOS defaults to 256 open files
 export MIX_ENV=prod MT_URL=http://127.0.0.1:8099 PORT PID_FILE="$D/app.pid" # the app writes its own VM pid
 if [ "${1:-start}" = fg ]; then
   trap 'stop; exit 0' INT TERM

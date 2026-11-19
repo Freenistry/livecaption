@@ -73,6 +73,7 @@ This is the English path. For other spoken languages the streaming model is Nemo
 8. **First pilot scope: English in, 15 targets out (`eval-targets.js`).** All 15 have a fast Bergamot path. On human English, Hy-MT2 never beats Bergamot by more than noise (+0.4 at best), and it is weakest and slowest on the Indic languages.
 9. **Cebuano–English check (`eval-ceb.js`).** Bergamot has no Cebuano model. Its Tagalog model handles Filipino well (chrF 67.9) but not Cebuano (40.6, often nonsense). Hy-MT2 scores 44.2 on Cebuano and is not good enough either. Cebuano needs its own speech and translation models.
 10. **End-to-end eval through the servers (`eval-live.js`).** FLEURS audio streamed over `/live` on the Node and the Elixir server, 4 targets per session. Both score the same, and the white line is +5 to +21 chrF over the grey line on every target. See "End-to-end through the servers".
+11. **Rooms: one speaker, many listeners (Elixir).** Listeners open `/r/<room>` and pick a language; translation runs once per language. Load test: 2000 listeners, 10 languages, 422,200 of 422,200 messages delivered, fan-out p50 4 ms, 175 MB. See "One speaker, many listeners".
 
 ### Proposed direction for a real-time translation app (from the numbers below)
 
@@ -133,6 +134,52 @@ Tested 2026-11-19 on Windows, warm, one target: white captions arrived 0.86 s (E
 - `docker-up.sh` passes `bash -n`.
 
 Speech recognition in an emulated arm64 container is too slow to judge; on a real Mac the image runs natively.
+
+## One speaker, many listeners (rooms, Elixir server)
+
+One person speaks, and listeners on their own phones or laptops each pick one of the speaker's languages. The speech is recognized once, and each language is translated once. Elixir then forwards the text to every listener of that language, so translation cost does not grow with the number of listeners.
+
+1. **Speaker:** open `http://<host>:3001/?room=sunday`, pick up to 10 languages, test the microphone and press Start. The page shows the listener link.
+2. **Listeners:** open `http://<host>:3001/r/sunday` (mobile layout, no microphone). Pick a language. The page waits for the speaker, reconnects with jittered backoff and pings every 30 s.
+
+How it works:
+- **Speaker:** `WS /live?…&room=sunday`. It needs `APP_TOKEN` when that is set, and a room takes 1 speaker; a second one gets 409.
+- **Listeners:** `WS /listen?room=sunday&to=es`. This is public, with no token, so internet listeners need only the link. It is read-only, frames are capped at 1 KB, and `MAX_LISTENERS` (default 5000) limits the total.
+- **Fan-out:** the speaker's session publishes each `tr_partial` and `final` to an Elixir `Registry`, keyed by room and language. The registry is partitioned per CPU core.
+- **API:** `GET /api/rooms/<room>` returns whether the room is live and its languages. `GET /api/stats` returns listeners, memory and Erlang processes (token-protected).
+- **Raised limits:** a session can now take 10 targets (`MAX_TARGETS`), and up to 12 Bergamot models stay loaded (`MAX_MODELS`).
+
+### Load test: 1 speaker, 2000 listeners, 10 languages (`load-listeners.js`)
+
+```bash
+node load-listeners.js n=2000 clips=20     # Elixir on :3001; ~5 min; appends a row to eval-results.jsonl
+node verify/room-check.js verify/media/speech.wav   # browser check: speaker tab + listener tab (Playwright)
+```
+
+The speaker streams 20 FLEURS clips (211 s) at real time into es, fr, de, pt, ru, zh-Hans, ja, hi, ar and id. 2000 listeners are spread evenly over those languages. The script compares every message each listener got with what the speaker got.
+
+Results from 2026-11-19. Docker (Elixir container) on the i7-7700K, with the listeners on the same machine:
+
+| Measure | Result |
+|---|---|
+| 2000 listeners connected | in 1.4 s, with 0 dropped |
+| Messages delivered | **422,200 of 422,200 (0 missing)**: 1839 partials + 272 finals × 200 listeners per language |
+| Fan-out delay, speaker → listener | p50 **4 ms**, p90 33 ms, p99 412 ms, max 3.1 s |
+| Elixir memory | 83 MB idle → 134 MB with 2000 listeners → 175 MB peak while speaking |
+| Erlang processes | 2430 (one per listener) |
+| Elixir CPU while speaking | ~1.1 cores. This includes the Node child running ASR and Bergamot for 10 languages, and the load generator shared the CPU. |
+| Server errors | 0 |
+
+What this says:
+- **Elixir is not the limit.** 2000 listeners cost about 50 MB, and captions reach 90% of listeners within 33 ms of the speaker.
+- **The p99 and max come from bursts.** When a final for all 10 languages lands at once, the 4-core machine is also running ASR, Bergamot and the test's 2000 clients. On a separate server with remote listeners, expect this to shrink, but it is not measured.
+- **The limit is translation, as before.** 10 Hy-MT2 targets queue on the GTX 1060; see "Faster hardware".
+- **Bandwidth for internet listeners:** 100 MB was sent to 2000 listeners over 211 s, about **3.8 Mbit/s**. A home uplink can carry this, but put the server behind a tunnel or reverse proxy with TLS (`wss://`), for example a Cloudflare named tunnel to `:3001`.
+- **Not tested:** real internet clients (latency, TLS, reconnect storms after a network drop), and more than one room at a time.
+
+Fixed while testing:
+- **The Port blocked the Engine when Node was busy.** Under load, Node was loading 10 Bergamot models while audio kept arriving. The Erlang Port's default `busy_limits_port` (about 8 KB) then blocked the Engine GenServer, and `/api/languages` and new sessions timed out. The Port now runs with `{:busy_limits_port, :disabled}`, so queued audio waits in memory instead of freezing every session.
+- **macOS open-files limit:** `serve.sh` raises `ulimit -n`, because each listener is one socket and macOS defaults to 256.
 
 ## Run it in Docker without the host GPU
 

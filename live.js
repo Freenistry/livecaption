@@ -21,7 +21,7 @@ const TARGETS = { 'zh-Hans': 'Simplified Chinese', hi: 'Hindi', es: 'Spanish', a
 // eval-targets.js: Hy-MT2's white line scored below the grey Bergamot line for hi, bn, ur, mr, te (and is 2-3x slower there),
 // so those get Bergamot on Parakeet's text instead.
 const WHITE_HYMT = new Set(['zh-Hans', 'es', 'ar', 'fr', 'pt', 'ru', 'id', 'de', 'ja', 'vi', 'en']);
-const MAX_TARGETS = 4;
+const MAX_TARGETS = 10;
 const NO_SPACES = /^(zh|ja)/; // scripts where a partial may stop mid-"word"
 // EVAL_LOG=<file> appends one JSON line per endpoint/final (with the session's ?tag=); EVAL_LOG=- writes them to stderr
 // (docker compose logs). eval-live.js scores what the client receives; this is the server's own record of the same run.
