@@ -9,10 +9,10 @@ const pairDir = (from, to) => `bergamot-${(from + to).toLowerCase().replace('-ha
 const chain = (src, tgt) => (src === 'en' || tgt === 'en' ? [pairDir(src, tgt)] : [pairDir(src, 'en'), pairDir('en', tgt)]);
 
 if (isMainThread) {
-  // ponytail: keeps the 4 most recently used models (~50-70 MB file, a few hundred MB loaded, each). One WASM heap
+  // ponytail: keeps the 8 most recently used models (4 targets + the source->en pivot, with room to switch) (~50-70 MB file, a few hundred MB loaded, each). One WASM heap
   // holding several models aborted after evict + reload (heap fragmentation), so each model gets its own worker and
   // eviction is worker.terminate(). Raise MAX_MODELS if RAM allows and many languages are live at once.
-  const MAX_MODELS = 4;
+  const MAX_MODELS = 8;
   // Returns { ready: Promise, translate(text, dirs) -> Promise<{ out, ms }> }
   module.exports = function startFastMt(root, preload = ['bergamot-enzh']) {
     const workers = new Map(); // dir -> { call(text) -> Promise<{out, ms}>, ready, w }

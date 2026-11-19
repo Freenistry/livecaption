@@ -194,6 +194,14 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  if (req.method === 'GET' && req.url === '/api/languages') { // what the app page offers: spoken languages, targets, installed or not
+    const { NAMES, TARGETS, MAX_TARGETS } = require('./live'), { chain } = require('./mt-fast'), multi = require('./asr-multi');
+    const has = (d) => fs.existsSync(path.join(__dirname, 'models', d));
+    const spoken = Object.entries(NAMES).filter(([c]) => c !== 'zh').map(([code, name]) => ({ code, name, ready: code === 'en' || (multi.available() && has(chain(code, 'en')[0])) }));
+    const targets = Object.entries(TARGETS).map(([code, name]) => ({ code, name: name.replace('Simplified ', ''), ready: code === 'en' || chain('en', code).every(has) })); // en target: the pivot models of non-English speakers
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ spoken, targets, maxTargets: MAX_TARGETS }));
+  }
   if (req.method === 'GET' && req.url === '/api/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify({ backend: 'node', target: TARGET, ok: true }));
@@ -247,7 +255,7 @@ const server = http.createServer(async (req, res) => {
     } catch (e) { json(502, { error: e.message }); }
     return;
   }
-  const file = path.join(PUBLIC, path.normalize(req.url.split('?')[0] === '/' ? 'index.html' : req.url.split('?')[0]));
+  const file = path.join(PUBLIC, path.normalize(req.url.split('?')[0] === '/' ? 'app.html' : req.url.split('?')[0]));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
@@ -267,7 +275,7 @@ const wss = new WebSocketServer({
   },
 });
 wss.on('connection', (ws, req) => {
-  if (req.url.startsWith('/live')) return live.connect(ws, new URL(req.url, 'http://localhost').searchParams.get('lang') || 'en');
+  if (req.url.startsWith('/live')) { const q = new URL(req.url, 'http://localhost').searchParams; return live.connect(ws, q.get('lang') || 'en', (q.get('to') || 'zh-Hans').split(',')); }
   const send = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
   let busy = false, pending = null; // ponytail: 1-slot queue; newer segment replaces an unprocessed one (drop backlog, never drift)
 

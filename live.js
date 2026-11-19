@@ -1,7 +1,8 @@
-// Two-stage live captions -> Simplified Chinese, over a WebSocket (/live?lang=xx).
-// English (default) : streaming FastConformer CTC 80 ms -> Bergamot en->zh (grey)  |  endpoint -> Parakeet 110M -> Hy-MT2 (white)
-// Other languages   : Nemotron 3.5 streaming 560 ms (worker) -> Bergamot via English (grey)  |  endpoint -> Hy-MT2 on Nemotron's text (white)
-// Measured: see README "Live two-stage captions".
+// Two-stage live captions into 1-4 target languages, over a WebSocket (/live?lang=en&to=zh-Hans,es,hi).
+// English (default) : streaming FastConformer CTC 80 ms -> Bergamot en->x (grey)  |  endpoint -> Parakeet 110M -> white MT
+// Other languages   : Nemotron 3.5 streaming (worker) -> Bergamot via English (grey)  |  endpoint -> white MT on Nemotron's text
+// White MT is Hy-MT2 where it beat the grey line in eval-targets.js, Bergamot elsewhere (WHITE_HYMT).
+// Measured: see README "Live two-stage captions" and "First pilot".
 const path = require('path');
 const fs = require('fs');
 const multi = require('./asr-multi');
@@ -14,6 +15,14 @@ const MAX_MSG = 64 * 1024; // one binary frame; the page sends 80 ms = 2560 byte
 // Names Hy-MT2 understands in its prompt, for the languages /live can hear (Nemotron ∩ Hy-MT2).
 const NAMES = { en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', tr: 'Turkish', ru: 'Russian',
   ar: 'Arabic', hi: 'Hindi', ja: 'Japanese', ko: 'Korean', vi: 'Vietnamese', uk: 'Ukrainian', pl: 'Polish', cs: 'Czech', zh: 'Chinese' };
+// Targets: the 15 pilot languages (README "First pilot") + English for non-English speakers. Value = Hy-MT2 prompt name.
+const TARGETS = { 'zh-Hans': 'Simplified Chinese', hi: 'Hindi', es: 'Spanish', ar: 'Arabic', fr: 'French', bn: 'Bengali', pt: 'Portuguese',
+  ru: 'Russian', id: 'Indonesian', ur: 'Urdu', de: 'German', ja: 'Japanese', mr: 'Marathi', vi: 'Vietnamese', te: 'Telugu', en: 'English' };
+// eval-targets.js: Hy-MT2's white line scored below the grey Bergamot line for hi, bn, ur, mr, te (and is 2-3x slower there),
+// so those get Bergamot on Parakeet's text instead.
+const WHITE_HYMT = new Set(['zh-Hans', 'es', 'ar', 'fr', 'pt', 'ru', 'id', 'de', 'ja', 'vi', 'en']);
+const MAX_TARGETS = 4;
+const NO_SPACES = /^(zh|ja)/; // scripts where a partial may stop mid-"word"
 
 // Shared by /live and eval.js so both run the exact same English models and endpoint rules. Throws if a model is missing.
 function loadModels({ trail = 0.5, maxlen = 10 } = {}) {
@@ -54,7 +63,7 @@ module.exports = function createLive({ mtUrl }) {
   try {
     ({ rec, off, fast } = loadModels());
     if (multi.available()) multi.preload().then(() => console.log(`live: Nemotron ready on ${multi.provider} (?lang=)`), (e) => console.error('live: Nemotron failed:', e.message));
-    fast.ready.then(() => console.log(`live: models ready (/live, en -> zh${multi.available() ? '; ?lang= for ' + Object.keys(NAMES).filter((l) => l !== 'en').join(' ') : ''})`),
+    fast.ready.then(() => console.log(`live: models ready (/live${multi.available() ? ', spoken: ' + Object.keys(NAMES).filter((l) => l !== 'zh').join(' ') : ', spoken: en'})`),
       (e) => { console.error('live: bergamot failed:', e.message); fast = null; });
   } catch (e) {
     console.warn(`live: disabled: ${e.message}`);
@@ -63,50 +72,53 @@ module.exports = function createLive({ mtUrl }) {
 
   const lcp = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return a.slice(0, i); };
 
-  function connect(ws, lang = 'en') {
+  function connect(ws, lang = 'en', to = ['zh-Hans']) {
     const send = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
-    if (!rec || !fast) { send({ type: 'status', level: 'error', msg: 'live pipeline not available on this server (see server log)' }); return ws.close(); }
-    if (!NAMES[lang] || lang === 'zh') { send({ type: 'status', level: 'error', msg: `unsupported language "${lang}"; use one of ${Object.keys(NAMES).filter((l) => l !== 'zh').join(', ')}` }); return ws.close(); }
-    const dirs = startFastMt.chain(lang, 'zh-Hans');
-    if (lang !== 'en') {
-      const missing = [...dirs.filter((d) => !fs.existsSync(path.join(MODELS, d))), ...(multi.available() ? [] : [`Nemotron (${multi.provider})`])];
-      if (missing.length) { send({ type: 'status', level: 'error', msg: `missing models for ${lang}: ${missing.join(', ')} (node get-models.js ${lang})` }); return ws.close(); }
-    }
+    const fail = (msg) => { send({ type: 'status', level: 'error', msg }); ws.close(); };
+    if (!rec || !fast) return fail('live pipeline not available on this server (see server log)');
+    if (!NAMES[lang] || lang === 'zh') return fail(`unsupported language "${lang}"; use one of ${Object.keys(NAMES).filter((l) => l !== 'zh').join(', ')}`);
+    to = [...new Set(to)].filter((t) => t !== lang);
+    if (!to.length || to.length > MAX_TARGETS || to.some((t) => !TARGETS[t])) return fail(`pick 1-${MAX_TARGETS} targets from ${Object.keys(TARGETS).join(', ')} (not the spoken language)`);
+    const dirsOf = Object.fromEntries(to.map((t) => [t, startFastMt.chain(lang, t)]));
+    const missing = [...new Set(Object.values(dirsOf).flat())].filter((d) => !fs.existsSync(path.join(MODELS, d)));
+    if (lang !== 'en' && !multi.available()) missing.push(`Nemotron (${multi.provider})`);
+    if (missing.length) return fail(`missing models: ${missing.join(', ')} (setup.ps1 -Langs / node get-models.js)`);
 
     let seg = 0, closed = false;
 
-    // Fast path: one Bergamot call in flight, newest partial wins.
-    // English (new text every 80 ms): display only the prefix two consecutive translations agree on, and never shrink
-    // what is shown just because the newest one is shorter: this cut retractions on the lab clip from 103 to 21 per 30 s.
-    // Other languages (new text every 560 ms): that rule held Chinese back 1-1.5 s, so show the newest translation, but
-    // let it rewrite (not just extend) what is on screen at most once per REWRITE_MS.
+    // Fast path, per target: one Bergamot call in flight, newest partial wins.
+    // English (new text every 80 ms) into zh/ja: display only the prefix two consecutive translations agree on, and never
+    // shrink what is shown just because the newest one is shorter: this cut retractions on the lab clip from 103 to 21 per 30 s.
+    // Other cases: show the newest translation, but let it rewrite (not just extend) the screen at most once per REWRITE_MS
+    // (the agree-on-prefix rule held captions back 1-1.5 s when text arrives in bigger steps, and cuts words in spaced scripts).
     const REWRITE_MS = 1000;
-    let busy = false, want = null, prevZh = '', shownZh = '', zhSeg = 0, lastRewrite = 0;
-    async function pump() {
-      if (busy || !want) return;
-      const { seg: s, text, at } = want; want = null; busy = true;
+    const lanes = Object.fromEntries(to.map((t) => [t, { busy: false, want: null, prev: '', shown: '', seg: 0, lastRewrite: 0 }]));
+    async function pump(t) {
+      const L = lanes[t];
+      if (L.busy || !L.want) return;
+      const { seg: s, text, at } = L.want; L.want = null; L.busy = true;
       try {
-        const r = await fast.translate(text, dirs);
-        if (s === zhSeg && s === seg) { // segment already finalized: drop
+        const r = await fast.translate(text, dirsOf[t]);
+        if (s === L.seg && s === seg) { // segment already finalized: drop
           let next;
-          if (lang === 'en') {
-            const stable = lcp(prevZh, r.out); prevZh = r.out;
-            next = stable.startsWith(shownZh) || !shownZh.startsWith(stable) ? stable : shownZh;
-          } else if (r.out.startsWith(shownZh)) next = r.out;
-          else if (performance.now() - lastRewrite > REWRITE_MS) { next = r.out; lastRewrite = performance.now(); }
-          else next = shownZh;
-          if (next !== shownZh) { shownZh = next; send({ type: 'zh_partial', seg: s, zh: next, mtMs: r.ms, askToSendMs: Math.round(performance.now() - at) }); }
+          if (lang === 'en' && NO_SPACES.test(t)) {
+            const stable = lcp(L.prev, r.out); L.prev = r.out;
+            next = stable.startsWith(L.shown) || !L.shown.startsWith(stable) ? stable : L.shown;
+          } else if (r.out.startsWith(L.shown)) next = r.out;
+          else if (performance.now() - L.lastRewrite > REWRITE_MS) { next = r.out; L.lastRewrite = performance.now(); }
+          else next = L.shown;
+          if (next !== L.shown) { L.shown = next; send({ type: 'tr_partial', seg: s, to: t, text: next, mtMs: r.ms, askToSendMs: Math.round(performance.now() - at) }); }
         }
-      } catch (e) { send({ type: 'status', level: 'error', msg: `fast MT: ${e.message}` }); }
-      busy = false; pump();
+      } catch (e) { send({ type: 'status', level: 'error', msg: `fast MT (${t}): ${e.message}` }); }
+      L.busy = false; pump(t);
     }
     function partial(text) {
-      send({ type: 'en_partial', seg, en: text });
-      if (text) { want = { seg, text, at: performance.now() }; pump(); }
+      send({ type: 'src_partial', seg, src: text });
+      if (text) for (const t of to) { lanes[t].want = { seg, text, at: performance.now() }; pump(t); }
     }
 
-    // Final path: in order, one at a time. English re-runs Parakeet on the segment audio; other languages reuse the
-    // streaming text (Nemotron is already as accurate as Parakeet 110M is on English, and a second 0.6B pass costs 1.5-2 s).
+    // Final path: in order, one segment at a time, targets in parallel. English re-runs Parakeet on the segment audio; other
+    // languages reuse the streaming text (Nemotron is already as accurate as Parakeet 110M is on English).
     let finals = Promise.resolve();
     function finalize(s, audio, text, endAt) {
       finals = finals.then(async () => {
@@ -120,15 +132,18 @@ module.exports = function createLive({ mtUrl }) {
           src = off.getResult(os).text.trim() || text;
         }
         const asrMs = Math.round(performance.now() - a);
-        const b = performance.now();
-        let zh, mt = 'hymt';
-        try { zh = await hymt(mtUrl, src); } catch (e) { zh = (await fast.translate(src, dirs)).out; mt = `bergamot (${e.message})`; } // Hy-MT2 down: keep captions coming
-        send({ type: 'final', seg: s, en: src, zh, asrMs, mtMs: Math.round(performance.now() - b), mt, sinceEndpointMs: Math.round(performance.now() - endAt) });
+        await Promise.all(to.map(async (t) => {
+          const b = performance.now();
+          let text, mt = WHITE_HYMT.has(t) ? 'hymt' : 'bergamot';
+          if (mt === 'hymt') try { text = await hymt(mtUrl, src, TARGETS[t]); } catch (e) { mt = `bergamot (${e.message})`; } // Hy-MT2 down: keep captions coming
+          if (text === undefined) text = (await fast.translate(src, dirsOf[t])).out;
+          send({ type: 'final', seg: s, to: t, src, text, asrMs, mtMs: Math.round(performance.now() - b), mt, sinceEndpointMs: Math.round(performance.now() - endAt) });
+        }));
       }).catch((e) => send({ type: 'status', level: 'error', msg: `final: ${e.message}` }));
     }
     function endpoint(text, audio) {
-      if (text) { send({ type: 'endpoint', seg, en: text }); finalize(seg, audio, text, performance.now()); seg++; }
-      zhSeg = seg; prevZh = ''; shownZh = ''; want = null;
+      if (text) { send({ type: 'endpoint', seg, src: text }); finalize(seg, audio, text, performance.now()); seg++; }
+      for (const L of Object.values(lanes)) { L.seg = seg; L.prev = ''; L.shown = ''; L.want = null; }
     }
 
     // Audio in: English decodes inline (~1 ms per 80 ms chunk); other languages go to a Nemotron worker.
@@ -168,7 +183,7 @@ module.exports = function createLive({ mtUrl }) {
       onClose = () => asr.close();
     }
 
-    send({ type: 'status', level: 'info', msg: `connected, ${lang} -> zh (two-stage)` });
+    send({ type: 'status', level: 'info', msg: `connected, ${lang} -> ${to.join(', ')}` });
     ws.on('message', (data, isBinary) => {
       if (!isBinary) { if (String(data) === 'flush') onFlush(); return; } // mic stopped: finalize what we have
       if (data.length % 2 || data.length > MAX_MSG) return;
@@ -178,7 +193,7 @@ module.exports = function createLive({ mtUrl }) {
       for (let i = 0; i < pcm.length; i++) f[i] = pcm[i] / 32768;
       onPcm(f);
     });
-    ws.on('close', () => { closed = true; want = null; onClose(); });
+    ws.on('close', () => { closed = true; for (const L of Object.values(lanes)) L.want = null; onClose(); });
   }
 
   return { connect };
@@ -186,3 +201,5 @@ module.exports = function createLive({ mtUrl }) {
 module.exports.loadModels = loadModels;
 module.exports.hymt = hymt;
 module.exports.NAMES = NAMES;
+module.exports.TARGETS = TARGETS;
+module.exports.MAX_TARGETS = MAX_TARGETS;

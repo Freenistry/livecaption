@@ -66,12 +66,12 @@ function onMsg(m) {
   const d = m.seg === undefined ? null : cap(m.seg);
   if (!d) return;
   if (d.classList.contains('partial')) {
-    if (m.type === 'en_partial' || m.type === 'endpoint') d.children[1].textContent = m.en;
-    if (m.type === 'zh_partial') { d.children[0].textContent = m.zh; d.children[2].textContent = `partial: MT ${m.mtMs} ms`; }
+    if (m.type === 'src_partial' || m.type === 'endpoint') d.children[1].textContent = m.src;
+    if (m.type === 'tr_partial') { d.children[0].textContent = m.text; d.children[2].textContent = `partial: MT ${m.mtMs} ms`; }
   }
   if (m.type === 'final') {
     d.classList.remove('partial');
-    d.children[0].textContent = m.zh; d.children[1].textContent = m.en;
+    d.children[0].textContent = m.text; d.children[1].textContent = m.src;
     d.children[2].textContent = `final ${m.sinceEndpointMs} ms after pause (ASR ${m.asrMs} · MT ${m.mtMs}${m.mt === 'hymt' ? '' : ' · ' + m.mt})`;
   }
 }

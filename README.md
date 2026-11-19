@@ -26,7 +26,7 @@ There are two pipelines in one Node server:
 **Not done or not proven:**
 - The `workersai` mode has never run, because there is no Cloudflare account yet.
 - Nothing is deployed.
-- `/live` only translates *into* Chinese. English → 15 other targets is scored (see "First pilot" below), but there is no target picker yet.
+- The app translates into the 15 pilot languages (+ English for other speakers), up to 4 at once. More targets per session need more RAM (each Bergamot model is a few hundred MB loaded).
 - Japanese is slow to show up (~2.2 s before any text), and live error rates on joined clips are noisy (one German run 12.5%, another 47.9%).
 - English decoding runs on Node's main thread; built for a few viewers.
 - GPU mode fills the 6 GB card (5.8 GB with Hy-MT2) and takes ~1 min to start. Both models share the GPU, so about 1 white caption in 9 waits 1.5–5.5 s instead of ~0.2 s.
@@ -125,13 +125,23 @@ cd ..\livecaption
 **3. Run.**
 
 ```powershell
-.\start.ps1                                                   # whisper :8081, llama-server :8099, Node :3000; Ctrl+C stops all
-.\start.ps1 -SourceLang es -TargetLang "Simplified Chinese"   # fixed pair for `/`; skips whisper's language detection
-.\start.ps1 -Gpu                                              # non-English /live speech model on the GPU
+.\serve.ps1                                                   # everything in the background; returns when the API is up
+.\serve.ps1 -Status                                           # running?  (logs: data\serve.log)
+.\serve.ps1 -Stop                                             # stops node, whisper and llama-server
+.\start.ps1                                                   # same, in the foreground; Ctrl+C stops all
+.\start.ps1 -SourceLang es -TargetLang "Simplified Chinese"   # fixed pair for /index.html; skips whisper's language detection
+.\start.ps1 -Gpu                                              # (or serve.ps1 -Gpu) non-English speech model on the GPU
 ```
 
-- **http://localhost:3000/live.html**: two-stage captions into Chinese. Pick the spoken language, click Start, speak.
-- **http://localhost:3000**: the first version, any language pair.
+- **http://localhost:3000**: the app. Pick the language you speak and 1–4 languages to translate into, click Start, speak. Each target gets its own line: grey while it is a fast guess, black once the final arrives.
+- **http://localhost:3000/live.html**: the older one-target debug page, with timings under each caption.
+- **http://localhost:3000/index.html**: the first version, any language pair.
+
+Target models: `foreach ($t in 'hi','es','ar','fr','bn','pt','ru','id','ur','de','ja','mr','vi','te') { node get-models.js --to=$t en }`. Targets without a model show greyed out. The API behind the page:
+- `GET /api/languages` lists the spoken languages and targets, and whether each one's models are installed.
+- `WS /live?lang=en&to=zh-Hans,es,hi` takes 80 ms PCM16 frames and sends `src_partial`, `tr_partial` and `final` messages, each tagged with `to`.
+
+The white line uses Hy-MT2 for Chinese, the European languages, Arabic, Indonesian, Japanese and Vietnamese. For Hindi, Bengali, Urdu, Marathi and Telugu it uses Bergamot on Parakeet's text, because Hy-MT2 scored lower and ran slower there (see "First pilot").
 
 **4. Check it works without a mic.**
 
