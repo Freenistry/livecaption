@@ -82,6 +82,53 @@ We did not run a head-to-head test, because we have no AWS or Soniox keys. The c
 
 **Next step for real numbers:** add Soniox and AWS backends to `eval-live.js` and stream the same FLEURS audio through all of them. This measures latency and chrF side by side. It needs API keys and costs less than $1.
 
+## Event plan: hybrid with on-demand GPUs
+
+Server load depends on the number of languages and stages. It does not depend on the number of listeners. Events last a few hours, so we rent GPUs only for the event.
+
+| Use | Where it runs | Why |
+|---|---|---|
+| Weekly church services | Local GPU box, or Soniox with a small VM | Low cost for weekly use |
+| Large events and conferences | **One rented GPU for each stage**, in a region near the venue | We pay only for the hours of the event |
+| Event backup | Soniox is ready as a hot spare | If the GPU fails during a talk, we switch in seconds |
+
+**Example cost:** a conference day of 8 h, 10 languages, 1 stage and 2,000 listeners.
+
+| | Rented GPU (L4 or 4090) | Soniox |
+|---|---|---|
+| Compute (8 h + 1 h warm-up) | 9 h × $0.69–0.89 ≈ **$6–8** | 10 × 8 h × $0.12 = **$9.60** |
+| Voice in 10 languages | Piper on the same GPU: **$0** | 10 × 8 h × $0.70 = **$56** |
+| Fan-out to 2,000 phones | Elixir on the same box | Our server is still necessary |
+| **Total** | **~$8 for each stage each day** | ~$10 for captions only, ~$66 with voice |
+
+Cost is not the main risk. The risks are reliability and capacity:
+
+1. **GPU availability:** use secure or reserved instances. Do not use spot or community instances, because the provider can take them back during the event. Start the GPU 1 h before the doors open.
+2. **Cold start:** bake the models into the Docker image or keep them on a persistent volume. Then a health check must pass before the event goes live.
+3. **10 languages on one GPU:** Hy-MT2 processes one request at a time. With 10 targets, the final captions can take more than 2 s. Use llama-server parallel slots (`-np 4`), or use Bergamot for the finals (fast on CPU). Do a load test before the first event.
+4. **2,000 WebSockets:** the Elixir server and the network do this work, not the GPU. Do a load test with 2,000 synthetic clients.
+5. **Venue internet:** the uplink sends only one audio stream, which is small. Each listener downloads captions and voice, so the venue Wi-Fi or mobile data must carry that traffic.
+
+**Work to do:**
+- A start/stop script (RunPod or AWS API) with DNS and TLS
+- A GPU Docker image that contains the models
+- A Soniox backend for the backup and for weekly services
+- Load tests: 10 languages on one GPU, and 2,000 viewers on Elixir
+
+## If cost is not a factor: is the AWS stack the best?
+
+The AWS stack is the most **reliable**: it has SLAs, multiple availability zones, automatic scaling, and 4 regions are already used in production. It is not the **best quality**. These are the problems:
+
+1. **ASR is not the leader.** On published benchmarks, Soniox, Deepgram and AssemblyAI are more accurate than Amazon Transcribe. Faithly added Soniox as an option, which shows that they found the same problem.
+2. **Amazon Translate is sentence-level NMT.** It does not use the context of the sermon. It has problems with idioms, Bible names, and words with more than one meaning. Custom terminology lists help only with the terms in the list. LLM translation (for example Claude) gives better quality, but it is slower and costs more.
+3. **Latency is 1–2 s, not sub-second.** The audio goes through STT, Translate and Polly, and each step adds a network hop. Faithly states 1–2 s.
+4. **The voice is synthetic.** The Standard voices sound robotic. The Generative voices sound good, but they cover fewer languages.
+5. **Weak languages are still weak.** For example, Cebuano is not supported in Transcribe, and Translate has no good model for it.
+6. **Quotas:** Transcribe streaming has a limit on concurrent streams for each account. Before a large event, check the limit and ask for an increase.
+7. **Dependency:** the system needs a good internet connection, the audio leaves the venue, and you are locked in to one vendor.
+
+**The best quality, if cost is not a factor:** Soniox (or Deepgram) for ASR, an LLM for the final translation with the context of the sermon, and ElevenLabs or Polly Generative for the voice. Use AWS only for the infrastructure (AppSync or our Elixir server for fan-out). Reliability then depends on 3 vendors, so for each one, keep a fallback that you can switch to.
+
 ## Sources
 
 - https://faithly.live/ and https://faithly.live/privacy.html
