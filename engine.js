@@ -1,7 +1,7 @@
 // The /live pipeline as a child process of the Elixir server (server_ex/), spoken to over stdin/stdout.
 // The models (sherpa-onnx, Bergamot WASM) only have Node bindings, so Elixir owns HTTP + WebSockets and this owns compute.
 // Frames both ways: 4-byte big-endian length, then  [kind u8][session u32 BE][payload]  (Erlang {:packet, 4}).
-//   in : 1 open {lang, to} JSON | 2 PCM16 audio | 3 flush | 4 close
+//   in : 1 open {lang, to, tag} JSON | 2 PCM16 audio | 3 flush | 4 close
 //   out: 1 JSON message for the browser | 2 session closed | 3 (session 0) languages JSON, sent once at startup
 const fs = require('fs'), path = require('path'), { EventEmitter } = require('events');
 const { NAMES, TARGETS, MAX_TARGETS } = require('./live');
@@ -25,13 +25,13 @@ const announce = () => out(3, 0, Buffer.from(JSON.stringify({
 live.ready.then(announce, announce); // only once models are loaded: serve.sh waits on /api/languages
 const sessions = new Map(); // sid -> fake ws that live.connect() talks to
 
-function open(sid, { lang, to }) {
+function open(sid, { lang, to, tag }) {
   const ws = new EventEmitter();
   ws.readyState = 1;
   ws.send = (s) => out(1, sid, Buffer.from(s));
   ws.close = () => { if (ws.readyState !== 1) return; ws.readyState = 3; sessions.delete(sid); out(2, sid); ws.emit('close'); };
   sessions.set(sid, ws);
-  live.connect(ws, String(lang || 'en'), String(to || 'zh-Hans').split(','));
+  live.connect(ws, String(lang || 'en'), String(to || 'zh-Hans').split(','), String(tag || '').slice(0, 64));
 }
 
 let buf = Buffer.alloc(0);

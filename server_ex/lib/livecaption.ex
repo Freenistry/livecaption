@@ -6,7 +6,7 @@
 #   GET /                -> public/app.html (also /live.html, other files under public/)
 #   GET /api/languages   -> spoken languages + targets and whether their models are installed
 #   GET /api/health      -> {"ok":true}
-#   WS  /live?lang=en&to=zh-Hans,es   (80 ms PCM16 frames in, JSON captions out; same protocol as server.js)
+#   WS  /live?lang=en&to=zh-Hans,es[&tag=x]   (80 ms PCM16 frames in, JSON captions out; same protocol as server.js)
 #
 # Env: PORT (3000), HOST (127.0.0.1), APP_ROOT (dir with engine.js + public/), MT_URL (http://127.0.0.1:8099), APP_TOKEN (empty = open, fine for localhost), NODE (node),
 #      PID_FILE (written on boot; serve.sh stops the VM with it, which closes engine.js's stdin so Node exits too).
@@ -135,7 +135,7 @@ defmodule Livecaption.Router do
     if token != "" and not Plug.Crypto.secure_compare(conn.params["token"] || "", token) do
       send_resp(conn, 401, "unauthorized")
     else
-      params = %{lang: conn.params["lang"] || "en", to: conn.params["to"] || "zh-Hans"}
+      params = %{lang: conn.params["lang"] || "en", to: conn.params["to"] || "zh-Hans", tag: conn.params["tag"] || ""}
       conn |> WebSockAdapter.upgrade(Livecaption.Socket, params, timeout: 120_000) |> halt()
     end
   end

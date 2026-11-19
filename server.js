@@ -275,7 +275,7 @@ const wss = new WebSocketServer({
   },
 });
 wss.on('connection', (ws, req) => {
-  if (req.url.startsWith('/live')) { const q = new URL(req.url, 'http://localhost').searchParams; return live.connect(ws, q.get('lang') || 'en', (q.get('to') || 'zh-Hans').split(',')); }
+  if (req.url.startsWith('/live')) { const q = new URL(req.url, 'http://localhost').searchParams; return live.connect(ws, q.get('lang') || 'en', (q.get('to') || 'zh-Hans').split(','), (q.get('tag') || '').slice(0, 64)); }
   const send = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
   let busy = false, pending = null; // ponytail: 1-slot queue; newer segment replaces an unprocessed one (drop backlog, never drift)
 

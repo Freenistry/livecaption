@@ -23,6 +23,14 @@ const TARGETS = { 'zh-Hans': 'Simplified Chinese', hi: 'Hindi', es: 'Spanish', a
 const WHITE_HYMT = new Set(['zh-Hans', 'es', 'ar', 'fr', 'pt', 'ru', 'id', 'de', 'ja', 'vi', 'en']);
 const MAX_TARGETS = 4;
 const NO_SPACES = /^(zh|ja)/; // scripts where a partial may stop mid-"word"
+// EVAL_LOG=<file> appends one JSON line per endpoint/final (with the session's ?tag=); EVAL_LOG=- writes them to stderr
+// (docker compose logs). eval-live.js scores what the client receives; this is the server's own record of the same run.
+const EVAL_LOG = process.env.EVAL_LOG;
+const evalLog = (o) => {
+  if (!EVAL_LOG) return;
+  const line = JSON.stringify({ at: new Date().toISOString(), ...o }) + '\n';
+  if (EVAL_LOG === '-') process.stderr.write('eval ' + line); else fs.appendFile(EVAL_LOG, line, () => {});
+};
 
 // Shared by /live and eval.js so both run the exact same English models and endpoint rules. Throws if a model is missing.
 function loadModels({ trail = 0.5, maxlen = 10 } = {}) {
@@ -72,8 +80,11 @@ module.exports = function createLive({ mtUrl }) {
 
   const lcp = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return a.slice(0, i); };
 
-  function connect(ws, lang = 'en', to = ['zh-Hans']) {
-    const send = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
+  function connect(ws, lang = 'en', to = ['zh-Hans'], tag = '') {
+    const send = (o) => {
+      if (o.type === 'endpoint' || o.type === 'final') evalLog({ tag, lang, ...o });
+      if (ws.readyState === 1) ws.send(JSON.stringify(o));
+    };
     const fail = (msg) => { send({ type: 'status', level: 'error', msg }); ws.close(); };
     if (!rec || !fast) return fail('live pipeline not available on this server (see server log)');
     if (!NAMES[lang] || lang === 'zh') return fail(`unsupported language "${lang}"; use one of ${Object.keys(NAMES).filter((l) => l !== 'zh').join(', ')}`);

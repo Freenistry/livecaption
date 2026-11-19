@@ -20,7 +20,7 @@ services:
 
   node:
     build: { context: ., target: node }
-    environment: { MT_URL: "http://llama:8080", APP_TOKEN: "${APP_TOKEN:-}" }
+    environment: { MT_URL: "http://llama:8080", APP_TOKEN: "${APP_TOKEN:-}", EVAL_LOG: "${EVAL_LOG:-}" }
     ports: ["127.0.0.1:3000:3000"]
     volumes: [models:/app/models:ro]
     depends_on: { llama: { condition: service_healthy } }
@@ -28,7 +28,7 @@ services:
 
   elixir:
     build: { context: ., target: elixir }
-    environment: { MT_URL: "http://llama:8080", APP_TOKEN: "${APP_TOKEN:-}" }
+    environment: { MT_URL: "http://llama:8080", APP_TOKEN: "${APP_TOKEN:-}", EVAL_LOG: "${EVAL_LOG:-}" }
     ports: ["127.0.0.1:3001:3000"]
     volumes: [models:/app/models:ro]
     depends_on: { llama: { condition: service_healthy } }
