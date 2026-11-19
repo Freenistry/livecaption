@@ -9,3 +9,5 @@ worker/.wrangler/
 worker/.dev.vars
 verify/video/
 eval-results.jsonl
+server_ex/_build/
+server_ex/deps/

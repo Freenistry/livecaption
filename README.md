@@ -83,6 +83,36 @@ This is the English path. For other spoken languages the streaming model is Nemo
 - **Before anything public:** rotate the app token. Check the model licences (Bergamot/Firefox, NVIDIA Parakeet/Nemotron, Tencent's Hy-MT2 terms). Build a test set of real spontaneous speech from the target domain; FLEURS is read speech.
 - **Not in the pilot:** other spoken input languages (the Nemotron path exists), Cebuano (see below), telling speakers apart, noise handling.
 
+## Set it up on macOS / Linux (Elixir server)
+
+Needs Elixir ≥ 1.18 (`brew install elixir`, or https://elixir-lang.org/install.html; Ubuntu's apt package is too old), Node ≥ 20, curl, tar and bzip2.
+
+```bash
+./setup.sh              # models for English speech -> the 15 pilot targets, llama.cpp, Hy-MT2, Elixir deps (~2 GB)
+./setup.sh es de ja     # also these spoken languages (adds ~0.7 GB + ~40 MB each)
+./serve.sh              # starts llama-server + the Elixir app in the background; returns once ready
+./serve.sh status       # running?   (logs: data/app.log, data/llama.log)
+./serve.sh stop
+./serve.sh fg           # foreground; Ctrl+C stops both
+```
+
+Then open http://localhost:3000. It's the same page and the same `/live` protocol as the Node server.
+
+How it is split:
+- **`server_ex/` (Elixir, Bandit + Plug)** handles HTTP, WebSockets and the token check.
+- **`engine.js`** is one Node child process that runs the models: sherpa-onnx and Bergamot only ship Node bindings.
+  - Each browser socket is one session, multiplexed over the child's stdin/stdout as length-prefixed frames.
+  - If the child crashes, the supervisor restarts it and open sockets close.
+- **Hy-MT2** runs on llama.cpp: Metal on Apple Silicon, CPU on Linux, or `LLAMA_BUILD=ubuntu-vulkan-x64 ./setup.sh` for a Vulkan GPU.
+
+Tested 2026-11-19 in a clean `elixir:1.19.7-otp-28` Linux container (Debian, x86-64, CPU only):
+- `setup.sh es`, then `serve.sh`.
+- English → Spanish/Chinese/Hindi and Spanish → English captions passed `live.test.js`.
+- `serve.sh stop` left no processes behind.
+- Without a GPU, Hy-MT2 is slow: white lines arrived 8–17 s after the pause, against ~0.5–1.5 s on the GTX 1060. The grey line was 85–145 ms per update.
+- **Not tested on a Mac.**
+- The GPU speech model (`-Gpu` on Windows) is not wired up here; non-English speech uses the CPU Nemotron model.
+
 ## Set it up locally (Windows)
 
 **You need:**

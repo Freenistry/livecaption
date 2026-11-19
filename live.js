@@ -196,7 +196,7 @@ module.exports = function createLive({ mtUrl }) {
     ws.on('close', () => { closed = true; for (const L of Object.values(lanes)) L.want = null; onClose(); });
   }
 
-  return { connect };
+  return { connect, ready: fast ? fast.ready : Promise.resolve() };
 };
 module.exports.loadModels = loadModels;
 module.exports.hymt = hymt;
