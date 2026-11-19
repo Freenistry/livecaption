@@ -85,6 +85,17 @@ This is the English path. For other spoken languages the streaming model is Nemo
 
 ## Run it in Docker (Node and Elixir servers)
 
+**Windows, real-time (Hy-MT2 on the host GPU):**
+
+```powershell
+.docker-up.ps1          # starts llama-server natively on the GPU (Vulkan), the containers, and opens http://localhost:3000
+.docker-up.ps1 -Down    # stops both
+```
+
+The containers reach the host's llama-server at `host.docker.internal:8099` (`docker-compose.host-llm.yml`), and no llama container starts. Windows Firewall may ask once to allow `llama-server.exe` on private networks. Tested 2026-11-19 (warm, one target): white captions arrived 0.86 s (Elixir) and 1.15 s (Node) after the pause, against ~22 s with the CPU container. The first session after a cold start of both servers was slow (up to 36 s) while the models warmed up.
+
+**Anywhere (Hy-MT2 in a container, CPU unless the GPU file applies):**
+
 ```bash
 docker compose up -d --build                    # Node server -> http://localhost:3000, Elixir server -> http://localhost:3001
 docker compose up -d --build node               # just one of them (or: elixir)

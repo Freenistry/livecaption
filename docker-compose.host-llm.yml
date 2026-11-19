@@ -1,0 +1,15 @@
+# Hy-MT2 from a llama-server running natively on the host (its own GPU build: Vulkan on Windows, Metal on macOS),
+# instead of the CPU-only llama container. Docker Desktop cannot hand an older NVIDIA driver's GPU to a container.
+#   .\docker-up.ps1                                  (Windows: starts the native llama-server, then this)
+#   docker compose -f docker-compose.yml -f docker-compose.host-llm.yml up -d --build   (llama-server already on :8099)
+services:
+  llama:
+    profiles: [container-llm] # not started in this mode
+  node:
+    environment: { MT_URL: "http://host.docker.internal:8099" }
+    extra_hosts: ["host.docker.internal:host-gateway"] # Linux engines; Docker Desktop already has it
+    depends_on: !override { models: { condition: service_completed_successfully } }
+  elixir:
+    environment: { MT_URL: "http://host.docker.internal:8099" }
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: !override { models: { condition: service_completed_successfully } }
