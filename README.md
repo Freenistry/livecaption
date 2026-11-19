@@ -440,6 +440,8 @@ Software changes that help on any hardware (each needs some code):
 - Run one `llama-server` per Hy-MT2 target, or give one server more parallel slots on a large GPU.
 - Use Bergamot for the white line on more targets when speed matters more than a few chrF points.
 
+How the cloud services get their speed without removing these delays, and what to copy: [docs/cloud-latency.md](docs/cloud-latency.md).
+
 To measure a new machine, run the same eval and compare its row with the tables above:
 ```bash
 ./docker-up.sh   # or .docker-up.ps1
