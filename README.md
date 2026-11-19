@@ -83,18 +83,59 @@ This is the English path. For other spoken languages the streaming model is Nemo
 - **Before anything public:** rotate the app token. Check the model licences (Bergamot/Firefox, NVIDIA Parakeet/Nemotron, Tencent's Hy-MT2 terms). Build a test set of real spontaneous speech from the target domain; FLEURS is read speech.
 - **Not in the pilot:** other spoken input languages (the Nemotron path exists), Cebuano (see below), telling speakers apart, noise handling.
 
-## Run it in Docker (Node and Elixir servers)
+## Quick start (Docker): macOS, Windows, Linux
 
-**Windows, real-time (Hy-MT2 on the host GPU):**
+**1. Install Docker Desktop and start it.** OrbStack or Colima also work on a Mac. Give Docker at least 6 GB of memory (Settings → Resources).
 
-```powershell
-.docker-up.ps1          # starts llama-server natively on the GPU (Vulkan), the containers, and opens http://localhost:3000
-.docker-up.ps1 -Down    # stops both
+**2. Get the code.**
+
+```bash
+git clone https://github.com/Freenistry/livecaption.git
+cd livecaption
 ```
 
-The containers reach the host's llama-server at `host.docker.internal:8099` (`docker-compose.host-llm.yml`), and no llama container starts. Windows Firewall may ask once to allow `llama-server.exe` on private networks. Tested 2026-11-19 (warm, one target): white captions arrived 0.86 s (Elixir) and 1.15 s (Node) after the pause, against ~22 s with the CPU container. The first session after a cold start of both servers was slow (up to 36 s) while the models warmed up.
+**3. Start it.** The first run downloads ~3 GB and takes ~10–15 min. Later runs take under a minute.
 
-**Anywhere (Hy-MT2 in a container, CPU unless the GPU file applies):**
+| Your machine | Command | Stop |
+|---|---|---|
+| **macOS** (Apple Silicon or Intel) | `./docker-up.sh` | `./docker-up.sh down` |
+| **Windows** (PowerShell) | `.\docker-up.ps1` | `.\docker-up.ps1 -Down` |
+| **Linux** | `./docker-up.sh` (`LLAMA_BUILD=ubuntu-vulkan-x64 ./docker-up.sh` for a Vulkan GPU) | `./docker-up.sh down` |
+
+Each script:
+- runs Hy-MT2 natively on the GPU: Metal on a Mac, Vulkan on Windows. Docker cannot reach the GPU there.
+- runs the Node and Elixir servers in containers.
+- opens **http://localhost:3000** in your browser.
+
+The Elixir server is on http://localhost:3001; both serve the same app.
+
+**4. Use the app.**
+1. Pick the language you speak and up to 4 languages to translate into.
+2. Click **Test microphone** and allow access. Say something until it says "Microphone works".
+3. Click **Start** and speak. Grey text is the fast guess; it turns black when the final translation arrives (~1 s after you pause).
+
+**If something goes wrong:**
+- **"Docker is not running":** start Docker Desktop and wait until it says it is running.
+- **macOS asks to allow `llama-server` incoming connections:** click Allow. The containers reach it over the network.
+- **Windows Firewall asks about `llama-server.exe`:** allow it on private networks.
+- **Microphone blocked:** click the icon left of the address bar, allow the microphone, then **Test again**. The mic works only on `http://localhost`, not on your machine's IP address.
+- **First captions are slow (10–30 s):** the models warm up on the first session after a start. Stop and start again.
+- **Logs:** `docker compose logs node`, `docker compose logs elixir`, and `data/host-llama.log` for Hy-MT2.
+
+Hy-MT2 runs outside Docker; the containers call it at `host.docker.internal:8099` (`docker-compose.host-llm.yml`).
+
+Tested 2026-11-19 on Windows, warm, one target: white captions arrived 0.86 s (Elixir) and 1.15 s (Node) after the pause. The CPU-only llama container took ~22 s.
+
+**macOS status:** the scripts and images are built for it, but no real Mac has run them yet. What was checked from Windows:
+- Both images build for Apple Silicon (`linux/arm64`), and both start and answer `/api/languages` under emulation.
+- Bergamot translates correctly in the arm64 image (emulated).
+- `docker-up.sh` passes `bash -n`.
+
+Speech recognition in an emulated arm64 container is too slow to judge; on a real Mac the image runs natively.
+
+## Run it in Docker without the host GPU
+
+Hy-MT2 runs in a container on the CPU, unless `docker-compose.gpu.yml` applies:
 
 ```bash
 docker compose up -d --build                    # Node server -> http://localhost:3000, Elixir server -> http://localhost:3001
