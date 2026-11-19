@@ -54,6 +54,34 @@ AWS Activate credits can probably pay part of the cost.
   - **Fan-out to many listener phones:** Faithly uses AppSync subscriptions for this. We would need a broadcast channel for each session.
 - The final-translation latency of livecaption is about 1 s. This is comparable to the 1–2 s that Faithly states.
 
+## Performance and latency: cloud stack compared with livecaption
+
+We did not run a head-to-head test, because we have no AWS or Soniox keys. The cloud numbers come from published benchmarks and docs. The livecaption numbers are our own measurements (see the README).
+
+| Step | Cloud (Soniox or Transcribe → Translate → Polly) | livecaption (GTX 1060) |
+|---|---|---|
+| Grey (draft) caption | Transcribe partials ~200–400 ms after speech starts, plus translation and network | ~0.4–0.5 s after a word; the translation part is ~31 ms |
+| ASR final after the pause | Soniox ~266 ms median (p95 324 ms); Transcribe ~100–300 ms | Parakeet ~190 ms after the segment cut |
+| Final translation | Amazon Translate for each sentence (no published latency) | Hy-MT2 ~390 ms; Bergamot 26–75 ms |
+| **End-to-end final caption** | **Faithly states ~1–2 s.** The sum of the steps is ~0.5–0.8 s plus network. | **~0.9–1.2 s after the speaker stops** (warm: Elixir 0.86 s, Node 1.15 s) |
+| Spoken voice | Polly Neural ~200 ms to first audio (p95 350 ms) | None yet |
+| Network | Phone → cloud region, for example ~100+ ms from the Philippines to Sydney | None on a LAN |
+
+**Accuracy**
+
+- ASR: Soniox has 0.7–1.3% WER on the Pipecat benchmark (clean English). We have not measured our WER on a comparable set. Our own measurement shows that ASR errors and segment cuts cost ~5 chrF points. ASR is our weakest step.
+- Translation: no head-to-head test yet. Amazon Translate is a large commercial model and probably wins on the long tail of languages. Our chrF scores for the top 15 languages are in the README.
+- Coverage: the cloud has 60 spoken languages, 73 caption languages and voice in 61. livecaption has English plus about 32 spoken languages (Nemotron) and no voice. Neither stack handles Cebuano well.
+
+**Cost and scale**
+
+- Cloud: ~$4–11 per service-hour, which increases with the number of languages. It supports unlimited listeners and needs no hardware.
+- livecaption: $0 per hour and one GPU box for each site. It is built for a few viewers. A busy CPU slows the finals to 2–10 s.
+
+**Result:** the cloud is better at accuracy, language coverage, voice and scale. livecaption is better at cost, privacy (audio stays on the box) and draft-caption speed. The final-caption latency of the two is about the same.
+
+**Next step for real numbers:** add Soniox and AWS backends to `eval-live.js` and stream the same FLEURS audio through all of them. This measures latency and chrF side by side. It needs API keys and costs less than $1.
+
 ## Sources
 
 - https://faithly.live/ and https://faithly.live/privacy.html
@@ -63,3 +91,9 @@ AWS Activate credits can probably pay part of the cost.
 - https://aws.amazon.com/transcribe/pricing/
 - https://aws.amazon.com/translate/pricing/
 - https://aws.amazon.com/polly/pricing/
+- https://www.pipecat.ai/benchmarks/speech-to-text
+- https://soniox.com/benchmarks
+- https://benchmarks.coval.ai/models/stt-rt-v5
+- https://barkingiguana.com/writing/building-a-voice-assistant-transcribe-bedrock-and-polly/ (Transcribe and Polly latencies; one blog, so the numbers are approximate)
+- https://creativeminds.dev/blog/voice-integration-amazon-connect-bedrock-polly-streaming-latency/
+- https://docs.aws.amazon.com/transcribe/latest/dg/result-stabilization.html
