@@ -6,7 +6,7 @@
 <title>Live Translate</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..500&display=swap">
 <style>
   :root {
     --bg: #f7f6f3; --fg: #1d1d1b; --muted: #8a8780; --line: #e3e1dc; --soft: #efede8; --accent: #1d1d1b; --on-accent: #f7f6f3;
@@ -17,7 +17,12 @@
     :root:not([data-theme="light"]) { --bg: #161615; --fg: #ecebe7; --muted: #8d8a83; --line: #2c2b29; --soft: #222120; --accent: #ecebe7; --on-accent: #161615; --err: #e0806f; color-scheme: dark; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh; display: flex; justify-content: center; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh; display: flex; justify-content: center;
+    /* crisp text: grayscale AA on macOS (subpixel AA makes light-on-dark text look bold and fuzzy), kerning + Inter's
+       contextual alternates, and legibility-tuned rendering. Windows ignores the smoothing props and uses ClearType. */
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
+    font-kerning: normal; font-feature-settings: "kern", "calt"; font-optical-sizing: auto; }
   main { width: 100%; max-width: 680px; padding: 72px 16px 48px; text-align: center; }
   h1 { font-weight: 500; font-size: 1.05rem; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 56px; }
   .label { display: block; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
