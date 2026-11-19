@@ -72,6 +72,7 @@ This is the English path. For other spoken languages the streaming model is Nemo
 7. **Other spoken languages.** Nemotron 3.5 ASR streaming (one model, 32 languages) + Bergamot through English for the grey line, Hy-MT2 for the white line. Runs on the CPU (560 ms model) or the GPU (80 ms model, ~35% faster grey captions).
 8. **First pilot scope: English in, 15 targets out (`eval-targets.js`).** All 15 have a fast Bergamot path. On human English, Hy-MT2 never beats Bergamot by more than noise (+0.4 at best), and it is weakest and slowest on the Indic languages.
 9. **Cebuano–English check (`eval-ceb.js`).** Bergamot has no Cebuano model. Its Tagalog model handles Filipino well (chrF 67.9) but not Cebuano (40.6, often nonsense). Hy-MT2 scores 44.2 on Cebuano and is not good enough either. Cebuano needs its own speech and translation models.
+10. **End-to-end eval through the servers (`eval-live.js`).** FLEURS audio streamed over `/live` on the Node and the Elixir server, 4 targets per session. Both score the same, and the white line is +5 to +21 chrF over the grey line on every target. See "End-to-end through the servers".
 
 ### Proposed direction for a real-time translation app (from the numbers below)
 
@@ -363,7 +364,53 @@ What this says:
 - **Compare columns within a row, not across rows.** chrF depends on the script: Chinese and Japanese score low everywhere because one wrong character costs more.
 - **Likely pilot setup:** Bergamot for the grey line on every target. Hy-MT2 for the white line on the European languages, Chinese, Japanese and Vietnamese. For the Indic languages, either Bergamot on Parakeet's text (not measured yet) or a better metric (COMET) to decide.
 
-`/live` itself still captions only into Chinese. `hymt()` takes the target name, and the Bergamot models above are the same files `/live` would load.
+`/live` now uses these results: up to 4 targets per session, and Bergamot for the white line on hi, bn, ur, mr and te.
+
+## End-to-end through the servers (`eval-live.js`)
+
+`eval-targets.js` calls the models directly. `eval-live.js` instead streams each FLEURS clip over `/live` in real time, in 80 ms frames, exactly as the browser does. It then scores what the server sends back, so it measures the shipped pipeline: endpointing, per-target lanes, the Hy-MT2 or Bergamot choice and the server itself.
+
+```bash
+./docker-up.sh            # or .docker-up.ps1; or serve.sh / serve.ps1 without Docker
+node eval-targets.js n=1  # once: fetches the 15 FLEURS reference files
+node eval-live.js n=50 to=all label=node                                    # ~2.5 h: 15 targets in 4 sessions of 4
+node eval-live.js n=50 to=all label=elixir url=ws://127.0.0.1:3001/live
+node eval-live.js n=10 to=zh-Hans,es label=quick                            # ~5 min smoke run
+```
+
+- **Output:** each target appends one row to `eval-results.jsonl` with the label `live:<label>`. Per-sentence source, grey, white and reference text go to `data/eval-live-<label>.json`.
+- **Other options:** `token=` when `APP_TOKEN` is set. `speed=2` sends audio at twice real time; white scores stay comparable, but grey scores and latency do not.
+- **Server-side log:** start either server with `EVAL_LOG=<file>`, or `EVAL_LOG=-` to write to stderr (`docker compose logs`). The server then writes one JSON line per endpoint and per final translation, with ASR ms, MT ms, the model used and the time since the endpoint. A client can add `&tag=<id>` to `/live`, and the server copies that tag into each line. `eval-live.js` tags sessions `<label>:<FLEURS id>`, so each scored sentence matches its server timing line.
+
+Results from 2026-11-19. Docker host-GPU mode (`docker-up.ps1`), GTX 1060, FLEURS dev, first 50 sentences, 4 targets per session at real time:
+- **grey** is the last partial shown before the final.
+- **white** is the final translation.
+- **final ms** is the time from the end of speech to the final.
+
+| target | n | Node grey | Node white | Elixir grey | Elixir white | white, model-direct (`eval-targets.js`) | Node final ms p50 / p90 | Elixir final ms p50 / p90 |
+|---|---|---|---|---|---|---|---|---|
+| Chinese (zh-Hans) | 50 | 14.7 | 30.0 | 12.5 | 30.0 | 30.5 | 1501 / 11918 | 4694 / 24745 |
+| Hindi | 45 | 44.2 | 54.1 | 44.9 | 54.1 | 46.3 (Hy-MT2) | 411 / 1015 | 735 / 9380 |
+| Spanish | 50 | 43.5 | 52.5 | 43.0 | 52.7 | 52.8 | 1974 / 12386 | 5192 / 25571 |
+| Arabic | 47 | 40.7 | 45.4 | 40.6 | 45.2 | 45.2 | 2206 / 12652 | 5362 / 33132 |
+| French | 45 | 51.1 | 62.4 | 53.4 | 62.2 | 62.1 | 3567 / 26698 | 1883 / 20666 |
+| Bengali | 50 | 40.5 | 50.3 | 41.4 | 50.3 | 41.4 (Hy-MT2) | 471 / 2074 | 351 / 917 |
+| Portuguese | 49 | 51.0 | 63.0 | 53.3 | 63.1 | 62.6 | 3542 / 24621 | 1831 / 19956 |
+| Russian | 50 | 41.9 | 49.9 | 43.2 | 50.0 | 50.5 | 3483 / 26691 | 2012 / 19985 |
+| Indonesian | 49 | 50.1 | 58.8 | 50.5 | 58.8 | 58.8 | 1692 / 2534 | 1518 / 2495 |
+| Urdu | 49 | 40.2 | 46.8 | 40.0 | 46.8 | 39.2 (Hy-MT2) | 437 / 764 | 350 / 897 |
+| German | 48 | 48.3 | 57.1 | 48.8 | 57.0 | 57.0 | 1662 / 2590 | 1481 / 2480 |
+| Japanese | 45 | 13.7 | 34.8 | 13.4 | 34.6 | 34.8 | 1564 / 2567 | 1483 / 2385 |
+| Marathi | 50 | 40.6 | 48.0 | 39.8 | 48.0 | 41.7 (Hy-MT2) | 552 / 1546 | 333 / 546 |
+| Vietnamese | 49 | 42.9 | 52.1 | 42.2 | 52.1 | 51.9 | 1278 / 3390 | 849 / 1487 |
+| Telugu | 47 | 43.5 | 54.0 | 44.8 | 54.0 | 47.6 (Hy-MT2) | 480 / 2084 | 289 / 498 |
+
+What this says:
+- **The servers do not change quality.** Node and Elixir white scores are within 0.2 chrF on every target. The white scores also match `eval-targets.js` on the same models. Elixir only relays audio and JSON, so this was expected.
+- **Switching hi, bn, ur, mr and te to Bergamot on Parakeet's text was right.** This was the "not measured yet" option above. Their white line went from 39–48 with Hy-MT2 to 47–54.
+- **The white line beats the grey line on every target**, by +5 (Arabic) to +21 (Japanese). Grey is lower than in `eval-targets.js` because it scores the last partial shown, which can stop mid-sentence, rather than a full translation of the streaming text.
+- **The p90 latency comes from the GPU, not the servers.** One GTX 1060 runs every Hy-MT2 call for 4 targets at once, and Bergamot gives the CPU-only languages (hi, bn, ur, mr, te) finals in 0.3–0.7 s p50. The slow tail is Hy-MT2 for zh, es, ar, fr, pt and ru (pass 1 and 2): some finals waited 15–30 s while llama-server's prompt processing stalled (prompt eval p99 2.5 s, max 9.5 s in its log). The Elixir session log shows MT ms close to the total wait, so the requests were stuck in llama-server.
+- **The p50 latency for one to two Hy-MT2 targets is 0.8–1.7 s.** That is close to the earlier single-target number. For a pilot with 4 Hy-MT2 targets, plan for a faster GPU or one llama-server per target.
 
 ## Cebuano and Cebuano–English mix → English (`eval-ceb.js`)
 

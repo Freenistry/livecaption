@@ -70,7 +70,8 @@ function session(id, to, audio) { // resolves with every message the server sent
 (async () => {
   const items = (await ensureData()).slice(0, N);
   const R = Object.fromEntries(all.map((c) => [c, refs(c)]));
-  const at = new Date().toISOString(), detail = {}, rows = [];
+  const at = new Date().toISOString(), rows = [], detailFile = path.join(__dirname, 'data', `eval-live-${LABEL}.json`);
+  const detail = fs.existsSync(detailFile) ? JSON.parse(fs.readFileSync(detailFile, 'utf8')) : {}; // per target; a partial rerun (to=mr,vi) keeps the rest
   for (const to of passes) {
     const S = Object.fromEntries(to.map((c) => [c, { grey: [], white: [], since: [], ask: [], n: 0 }]));
     for (const c of to) detail[c] = [];
@@ -95,7 +96,7 @@ function session(id, to, audio) { // resolves with every message the server sent
         finalSinceEndpointMsP50: q(s.since, 0.5), finalSinceEndpointMsP90: q(s.since, 0.9), partialAskToSendMsP50: q(s.ask, 0.5), partialAskToSendMsP90: q(s.ask, 0.9) };
       rows.push(row); fs.appendFileSync(path.join(__dirname, 'eval-results.jsonl'), JSON.stringify(row) + '\n');
     }
-    fs.writeFileSync(path.join(__dirname, 'data', `eval-live-${LABEL}.json`), JSON.stringify(detail, null, 1));
+    fs.writeFileSync(detailFile, JSON.stringify(detail, null, 1));
   }
   console.log(`\n\n${URL_} (${LABEL}): English speech (FLEURS dev) through /live, chrF vs human reference\n`);
   console.log('target    n   grey  white   final ms p50/p90   partial ms p50/p90');

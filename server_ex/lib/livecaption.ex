@@ -8,7 +8,7 @@
 #   GET /api/health      -> {"ok":true}
 #   WS  /live?lang=en&to=zh-Hans,es[&tag=x]   (80 ms PCM16 frames in, JSON captions out; same protocol as server.js)
 #
-# Env: PORT (3000), HOST (127.0.0.1), APP_ROOT (dir with engine.js + public/), MT_URL (http://127.0.0.1:8099), APP_TOKEN (empty = open, fine for localhost), NODE (node),
+# Env: PORT (3000), HOST (127.0.0.1), APP_ROOT (dir with engine.js + public/), MT_URL (http://127.0.0.1:8099), APP_TOKEN (empty = open, fine for localhost), EVAL_LOG (file or - : one JSON line per endpoint/final, see eval-live.js), NODE (node),
 #      PID_FILE (written on boot; serve.sh stops the VM with it, which closes engine.js's stdin so Node exits too).
 
 defmodule Livecaption do
