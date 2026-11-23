@@ -1,10 +1,11 @@
 // Checks rooms end to end in Chromium: a speaker tab (app.html?room=x, fake mic playing a WAV) and a listener tab
 // (/r/x, no mic). The listener must see the speaker's languages, pick one, and get its captions.
-// Usage: node room-check.js <speech.wav> [http://127.0.0.1:3001]
+// Usage: node room-check.js <speech.wav> [http://127.0.0.1:3001] [speaker base, default = the same] [token]
+//   e.g. speaker local, listener through the tunnel: node room-check.js speech.wav https://<x>.trycloudflare.com http://127.0.0.1:3001 <token>
 const { chromium } = require('playwright');
 const assert = require('assert');
 const path = require('path');
-const [wav, base = 'http://127.0.0.1:3001'] = process.argv.slice(2);
+const [wav, base = 'http://127.0.0.1:3001', sbase = base, token = ''] = process.argv.slice(2);
 const room = `check-${process.pid}`;
 
 (async () => {
@@ -21,7 +22,7 @@ const room = `check-${process.pid}`;
   // speaker: pick es + de, test the mic, start
   const sc = await browser.newContext({ permissions: ['microphone'], viewport: { width: 1280, height: 900 } });
   const s = await sc.newPage(); s.on('pageerror', (e) => console.log('  [speaker pageerror]', e.message));
-  await s.goto(`${base}/?room=${room}`); await s.waitForSelector('.chip');
+  await s.goto(`${sbase}/?room=${room}${token ? `&token=${token}` : ''}`); await s.waitForSelector('.chip');
   assert((await s.textContent('#sharelink')).endsWith(`/r/${room}`), 'speaker page shows the listener link');
   for (const b of await s.$$('#to .chip[aria-pressed="true"]')) await b.click(); // clear saved picks
   await s.click('#to .chip:text-is("Spanish")'); await s.click('#to .chip:text-is("German")');

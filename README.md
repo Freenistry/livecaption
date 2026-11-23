@@ -191,11 +191,25 @@ $env:APP_TOKEN = Get-Content data\apptoken.txt   # any long random string (data/
 - **Quick tunnel (default).** A random `*.trycloudflare.com` URL that changes on every start. No account is needed. Cloudflare limits quick tunnels to **200 in-flight requests**, and each listener holds one, so use it for demos only. Some router DNS filters also block `trycloudflare.com`.
 - **Named tunnel (for 1700+ listeners).** In Cloudflare Zero Trust, go to Networks > Tunnels > Create a tunnel (cloudflared). Add a public hostname, such as `live.example.org`, that points to `http://elixir:3000`. Copy the tunnel token, then run `$env:TUNNEL_TOKEN = '...'; .\docker-up.ps1 -Tunnel`. This needs a domain on Cloudflare (free plan). The URL stays the same, and the 200 limit does not apply.
 
-Tested 2026-11-23 through a quick tunnel, with the clients on this PC going out to Cloudflare's edge and back:
-- **Routes:** `/r/<room>` and `/api/health` answer 200 without a token. `/live` and `/api/stats` answer 401 without it.
-- **Load:** 100 listeners on 10 languages, 33 s of speech. 1120 of 1120 messages arrived, with 0 sockets dropped.
-- **Fan-out delay:** p50 −30 ms, p90 315 ms, p99 3.3 s. The p50 is negative because the speaker's and listeners' sockets take different paths through Cloudflare, so a listener can get a caption before the speaker does.
-- **Not measured:** 2000 listeners through a named tunnel. This needs your domain; run `node load-listeners.js base=https://live.example.org token=...`.
+Retested 2026-11-23 with a quick tunnel. The clients ran on this PC, so "internet" means out to Cloudflare's edge and back. The speaker always connects locally, and each run has 10 languages and 211 s of speech.
+
+```powershell
+node load-listeners.js n=2000 token=$t                                          # all local
+node load-listeners.js n=2000 token=$t via=https://<x>.trycloudflare.com vian=190 # 190 through the tunnel + 1810 local
+node verify/room-check.js verify/media/speech.wav https://<x>.trycloudflare.com http://127.0.0.1:3001 $t   # browser
+```
+
+| Run | Listeners | Delivered | Dropped | Speaker → listener p50 / p90 / p99 / max |
+|---|---|---|---|---|
+| All local | 2000 | 269,000 of 269,000 | 0 | 4 / 43 / 314 ms / 2.2 s |
+| Mixed: local part | 1810 | 451,233 of 451,233 | 0 | 3 / 20 / 73 / 211 ms |
+| Mixed: through the tunnel | 190 | 47,367 of 47,367 | 0 | 79 / 400 ms / 1.3 s / 21 s |
+
+- **Elixir with 2000 listeners:** 135–159 MB of memory and 2430 processes.
+- **Through Cloudflare:** a listener on the tunnel gets most captions about 0.1–0.4 s after the speaker. A few arrive more than 1 s late, and the worst was 21 s, but nothing was lost.
+- **Browser check (Chromium):** with the listener page on the tunnel, it waited for the speaker, showed only the speaker's languages, received German captions, and showed "the speaker stopped". This passed with the speaker local and again with the speaker on the tunnel too.
+- **Access:** `/r/<room>` and `/api/health` answer 200 without a token. `/live` and `/api/stats` answer 401 without it.
+- **Not measured:** 1700+ listeners through a named tunnel, and real phones on other networks. The quick tunnel's 200-request limit keeps the internet part at 190 here. With your named tunnel, run `node load-listeners.js base=https://live.example.org n=2000 token=...`.
 
 Fixed while testing:
 - **The Port blocked the Engine when Node was busy.** Under load, Node was loading 10 Bergamot models while audio kept arriving. The Erlang Port's default `busy_limits_port` (about 8 KB) then blocked the Engine GenServer, and `/api/languages` and new sessions timed out. The Port now runs with `{:busy_limits_port, :disabled}`, so queued audio waits in memory instead of freezing every session.
