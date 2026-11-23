@@ -1,0 +1,23 @@
+# Listeners from the internet: a Cloudflare tunnel to the Elixir server (rooms). Refuses to start without APP_TOKEN, so
+# only you can speak; listeners (/r/<room>, /listen) need no token.
+#   .\docker-up.ps1 -Tunnel  /  ./docker-up.sh tunnel     (or add -f docker-compose.tunnel.yml --profile quick|named)
+# quick: random https://<x>.trycloudflare.com, no account. Cloudflare caps quick tunnels at 200 concurrent requests
+#        (each listener holds one), so: demos and tests only.
+# named: TUNNEL_TOKEN from Cloudflare Zero Trust > Networks > Tunnels, with a public hostname -> http://elixir:3000.
+#        Your own domain, stable URL, no 200 cap: use this for hundreds or thousands of listeners.
+x-cloudflared: &cf
+  image: cloudflare/cloudflared:2026.11.1@sha256:e613aadbc2d9511785d2e67a86b0c8ac18dd63a3f9af0d06faf04cbfdcb35f2d
+  depends_on: [elixir]
+  restart: unless-stopped
+services:
+  elixir:
+    environment: { APP_TOKEN: "${APP_TOKEN:?set APP_TOKEN (a long random string) before exposing the server}" }
+  quick:
+    <<: *cf
+    command: ["tunnel", "--no-autoupdate", "--url", "http://elixir:3000"]
+    profiles: [quick]
+  named:
+    <<: *cf
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment: { TUNNEL_TOKEN: "${TUNNEL_TOKEN:-}" } # empty: cloudflared exits with an error
+    profiles: [named]

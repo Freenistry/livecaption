@@ -2,17 +2,21 @@
 # macOS / Linux: native llama-server (Hy-MT2 on the GPU: Metal on a Mac) on 0.0.0.0:8099 + the Docker stack using it,
 # then opens the app. Docker on a Mac cannot reach the GPU, so Hy-MT2 must run outside the container to be fast.
 # Usage: ./docker-up.sh          start (or reuse) everything and open http://localhost:3000
+#        ./docker-up.sh tunnel   also a Cloudflare tunnel to the Elixir server, so room listeners can join from the internet
+#                                (needs APP_TOKEN; TUNNEL_TOKEN = your named tunnel, else a quick trycloudflare.com URL)
 #        ./docker-up.sh down     stop the containers and the llama-server this script started
 # Needs: Docker Desktop (or OrbStack / Colima), curl, tar. Downloads llama.cpp + Hy-MT2 on first run (sha256-checked).
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT=$PWD D=$ROOT/data V=$ROOT/vendor M=$ROOT/models
 mkdir -p "$D"
-compose() { docker compose -f docker-compose.yml -f docker-compose.host-llm.yml "$@"; }
+F=(-f docker-compose.yml -f docker-compose.host-llm.yml)
+[ "${1:-}" = tunnel ] && F+=(-f docker-compose.tunnel.yml --profile "$([ -n "${TUNNEL_TOKEN:-}" ] && echo named || echo quick)")
+compose() { docker compose "${F[@]}" "$@"; }
 up() { curl -fs -m 2 "$1" >/dev/null 2>&1; }
 
 if [ "${1:-}" = down ]; then
-  compose down
+  compose down --remove-orphans
   [ -f "$D/host-llama.pid" ] && kill "$(cat "$D/host-llama.pid")" 2>/dev/null || true
   rm -f "$D/host-llama.pid"; echo stopped; exit 0
 fi
@@ -60,4 +64,9 @@ compose up -d --build --remove-orphans
 for _ in $(seq 180); do up http://127.0.0.1:3000/api/languages && break; sleep 1; done
 up http://127.0.0.1:3000/api/languages || { echo "app not ready after 180 s; see: docker compose logs node" >&2; exit 1; }
 echo "ready: http://localhost:3000 (Node)  http://localhost:3001 (Elixir)"
+if [ "${1:-}" = tunnel ] && [ -z "${TUNNEL_TOKEN:-}" ]; then
+  u=; for _ in $(seq 60); do u=$(compose logs quick 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1); [ -n "$u" ] && break; sleep 1; done
+  [ -n "$u" ] || { echo "no tunnel URL after 60 s; see: docker compose logs quick" >&2; exit 1; }
+  echo "public: speaker $u/?room=<name>&token=<APP_TOKEN>   listeners $u/r/<name>"
+elif [ "${1:-}" = tunnel ]; then echo "public: the hostname you set on the named tunnel (Cloudflare Zero Trust > Networks > Tunnels)"; fi
 if command -v open >/dev/null; then open http://localhost:3000; elif command -v xdg-open >/dev/null; then xdg-open http://localhost:3000 >/dev/null 2>&1 || true; fi

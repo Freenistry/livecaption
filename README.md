@@ -177,6 +177,26 @@ What this says:
 - **Bandwidth for internet listeners:** 100 MB was sent to 2000 listeners over 211 s, about **3.8 Mbit/s**. A home uplink can carry this, but put the server behind a tunnel or reverse proxy with TLS (`wss://`), for example a Cloudflare named tunnel to `:3001`.
 - **Not tested:** real internet clients (latency, TLS, reconnect storms after a network drop), and more than one room at a time.
 
+### Listeners from the internet (Cloudflare tunnel)
+
+`docker-compose.tunnel.yml` adds `cloudflared`, which sends Cloudflare's HTTPS (`wss://`) traffic to the Elixir server. You open no router ports and need no certificate. It will not start without `APP_TOKEN`, so only you can speak; listeners need no token.
+
+```powershell
+$env:APP_TOKEN = Get-Content data\apptoken.txt   # any long random string (data/ is gitignored)
+.\docker-up.ps1 -Tunnel                          # mac/linux: APP_TOKEN=... ./docker-up.sh tunnel
+# prints: public: speaker https://<x>.trycloudflare.com/?room=<name>&token=<APP_TOKEN>   listeners https://<x>.trycloudflare.com/r/<name>
+.\docker-up.ps1 -Down
+```
+
+- **Quick tunnel (default).** A random `*.trycloudflare.com` URL that changes on every start. No account is needed. Cloudflare limits quick tunnels to **200 in-flight requests**, and each listener holds one, so use it for demos only. Some router DNS filters also block `trycloudflare.com`.
+- **Named tunnel (for 1700+ listeners).** In Cloudflare Zero Trust, go to Networks > Tunnels > Create a tunnel (cloudflared). Add a public hostname, such as `live.example.org`, that points to `http://elixir:3000`. Copy the tunnel token, then run `$env:TUNNEL_TOKEN = '...'; .\docker-up.ps1 -Tunnel`. This needs a domain on Cloudflare (free plan). The URL stays the same, and the 200 limit does not apply.
+
+Tested 2026-11-23 through a quick tunnel, with the clients on this PC going out to Cloudflare's edge and back:
+- **Routes:** `/r/<room>` and `/api/health` answer 200 without a token. `/live` and `/api/stats` answer 401 without it.
+- **Load:** 100 listeners on 10 languages, 33 s of speech. 1120 of 1120 messages arrived, with 0 sockets dropped.
+- **Fan-out delay:** p50 −30 ms, p90 315 ms, p99 3.3 s. The p50 is negative because the speaker's and listeners' sockets take different paths through Cloudflare, so a listener can get a caption before the speaker does.
+- **Not measured:** 2000 listeners through a named tunnel. This needs your domain; run `node load-listeners.js base=https://live.example.org token=...`.
+
 Fixed while testing:
 - **The Port blocked the Engine when Node was busy.** Under load, Node was loading 10 Bergamot models while audio kept arriving. The Erlang Port's default `busy_limits_port` (about 8 KB) then blocked the Engine GenServer, and `/api/languages` and new sessions timed out. The Port now runs with `{:busy_limits_port, :disabled}`, so queued audio waits in memory instead of freezing every session.
 - **macOS open-files limit:** `serve.sh` raises `ulimit -n`, because each listener is one socket and macOS defaults to 256.
