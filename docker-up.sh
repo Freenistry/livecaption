@@ -11,6 +11,7 @@ cd "$(dirname "$0")"
 ROOT=$PWD D=$ROOT/data V=$ROOT/vendor M=$ROOT/models
 mkdir -p "$D"
 F=(-f docker-compose.yml -f docker-compose.host-llm.yml)
+[ "${1:-}" = down ] && F+=(-f docker-compose.tunnel.yml --profile quick --profile named) && export APP_TOKEN=${APP_TOKEN:-down} # stop the tunnel too
 [ "${1:-}" = tunnel ] && F+=(-f docker-compose.tunnel.yml --profile "$([ -n "${TUNNEL_TOKEN:-}" ] && echo named || echo quick)")
 compose() { docker compose "${F[@]}" "$@"; }
 up() { curl -fs -m 2 "$1" >/dev/null 2>&1; }

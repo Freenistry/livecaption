@@ -11,7 +11,8 @@ $data = Join-Path $root 'data'; New-Item -ItemType Directory -Force $data | Out-
 $pidFile = Join-Path $data 'host-llama.pid'
 # docker prints progress on stderr, which Windows PowerShell 5.1 turns into errors: run it through cmd, check the exit code
 $files = "-f `"$root\docker-compose.yml`" -f `"$root\docker-compose.host-llm.yml`""
-if ($Tunnel) { $files += " -f `"$root\docker-compose.tunnel.yml`" --profile $(if ($env:TUNNEL_TOKEN) { 'named' } else { 'quick' })" }
+if ($Down) { $env:APP_TOKEN = 'down'; $files += " -f `"$root\docker-compose.tunnel.yml`" --profile quick --profile named" } # stop the tunnel too
+elseif ($Tunnel) { $files += " -f `"$root\docker-compose.tunnel.yml`" --profile $(if ($env:TUNNEL_TOKEN) { 'named' } else { 'quick' })" }
 function Compose([string]$a) {
   cmd /c "docker compose $files $a 2>&1" | Out-Host
   $LASTEXITCODE
